@@ -1,7 +1,7 @@
 import type { CompletionReason, Run, RunStatus } from './types.js';
 
 const allowedTransitions: Record<RunStatus, readonly RunStatus[]> = {
-  scheduled: ['resolving', 'skipped'],
+  scheduled: ['resolving', 'skipped', 'leaving'],
   resolving: ['joining', 'blocked', 'failed', 'leaving'],
   joining: ['waiting_room', 'connected', 'blocked', 'failed', 'leaving'],
   waiting_room: ['connected', 'blocked', 'failed', 'leaving'],
