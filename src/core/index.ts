@@ -13,3 +13,4 @@ export type {
   Weekday,
 } from './types.js';
 export { redactSensitiveText } from './redaction.js';
+export { findActiveOccurrence } from './occurrence.js';
