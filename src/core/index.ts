@@ -17,3 +17,4 @@ export { findActiveOccurrence } from './occurrence.js';
 export { completeRun, transitionRun } from './lifecycle.js';
 export { leaveIfDeadlineReached } from './deadline.js';
 export { nextRetryDelay } from './retry.js';
+export { Scheduler } from './scheduler.js';
