@@ -38,4 +38,28 @@ describe('parseJobConfig', () => {
       ),
     ).toThrow('target.type=url cannot include course or lecture');
   });
+
+  it.each([
+    'https://bbb2.tusur.ru/html5client/',
+    'http://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
+    'https://example.com/mod/bigbluebuttonbn/view.php?id=42',
+  ])('rejects an unsupported lecture URL: %s', (url) => {
+    expect(() =>
+      parseJobConfig(`
+id: math
+enabled: true
+schedule:
+  type: once
+  date: "2026-09-28"
+  joinAt: "10:00"
+  leaveAt: "11:35"
+  timezone: Asia/Krasnoyarsk
+target:
+  type: url
+  url: ${url}
+browser:
+  headless: false
+`),
+    ).toThrow('target.url must be an HTTPS Moodle BigBlueButton activity URL');
+  });
 });

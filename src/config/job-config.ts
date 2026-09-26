@@ -33,6 +33,17 @@ const target = z
         message: 'target.type=url requires url',
       });
     }
+    if (
+      value.type === 'url' &&
+      value.url !== undefined &&
+      !isMoodleBbbUrl(value.url)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'target.url must be an HTTPS Moodle BigBlueButton activity URL',
+      });
+    }
   });
 
 const schema = z.object({
@@ -67,4 +78,14 @@ export function parseJobConfig(yaml: string): Job {
       result.error.issues.map((issue) => issue.message).join('; '),
     );
   return result.data as Job;
+}
+
+function isMoodleBbbUrl(value: string): boolean {
+  const url = new URL(value);
+  return (
+    url.protocol === 'https:' &&
+    url.hostname === 'sdo.tusur.ru' &&
+    url.pathname === '/mod/bigbluebuttonbn/view.php' &&
+    url.searchParams.has('id')
+  );
 }
