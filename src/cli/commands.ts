@@ -1,6 +1,8 @@
 import { readFile } from 'node:fs/promises';
 
 import { parseJobConfig } from '../config/job-config.js';
+import { SqliteJobRepository } from '../persistence/job-repository.js';
+import { SqliteStore } from '../persistence/sqlite-store.js';
 
 export interface CliResult {
   exitCode: number;
@@ -24,6 +26,23 @@ export async function executeCli(argumentsList: string[]): Promise<CliResult> {
       const message = error instanceof Error ? error.message : String(error);
       return { exitCode: 1, output: `Configuration is invalid: ${message}\n` };
     }
+  }
+
+  if (argumentsList[0] === 'jobs' && argumentsList[1] === 'list') {
+    const databasePath = optionValue(argumentsList, '--db');
+    if (databasePath === undefined) {
+      return { exitCode: 1, output: 'Missing required --db <sqlite>\n' };
+    }
+    const store = new SqliteStore(databasePath);
+    await store.open();
+    const jobs = await new SqliteJobRepository(store).listEnabled();
+    store.close();
+    return {
+      exitCode: 0,
+      output: jobs
+        .map((job) => `${job.id}\tenabled\t${job.schedule.type}\n`)
+        .join(''),
+    };
   }
 
   return { exitCode: 1, output: 'Unknown command\n' };
