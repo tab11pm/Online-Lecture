@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -25,6 +25,18 @@ describe('SqliteStore', () => {
     await store.open();
 
     expect(store.migrationVersion()).toBe(1);
+    store.close();
+  });
+
+  it('creates a local backup before a schedule change', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    temporaryDirectories.push(directory);
+    const store = new SqliteStore(join(directory, 'lectures.sqlite'));
+    await store.open();
+
+    const backupPath = await store.createBackup();
+
+    await expect(access(backupPath)).resolves.toBeUndefined();
     store.close();
   });
 });

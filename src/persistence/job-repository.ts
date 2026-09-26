@@ -23,6 +23,7 @@ export class SqliteJobRepository implements JobRepository {
   }
 
   async save(job: Job): Promise<void> {
+    await this.store.createBackup();
     this.store
       .getDatabase()
       .prepare(

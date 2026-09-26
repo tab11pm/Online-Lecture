@@ -1,4 +1,6 @@
 import Database from 'better-sqlite3';
+import { mkdir, readdir, rm } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
 const initialSchema = `
   CREATE TABLE IF NOT EXISTS jobs (
@@ -33,6 +35,20 @@ export class SqliteStore {
 
   getDatabase(): Database.Database {
     return this.requireDatabase();
+  }
+
+  async createBackup(): Promise<string> {
+    const backupDirectory = join(dirname(this.path), 'backups');
+    await mkdir(backupDirectory, { recursive: true });
+    const backupPath = join(backupDirectory, `lectures-${Date.now()}.sqlite`);
+    await this.requireDatabase().backup(backupPath);
+    const backups = (await readdir(backupDirectory))
+      .filter((name) => name.endsWith('.sqlite'))
+      .sort();
+    await Promise.all(
+      backups.slice(0, -5).map((name) => rm(join(backupDirectory, name))),
+    );
+    return backupPath;
   }
 
   close(): void {

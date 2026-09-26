@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,6 +47,31 @@ describe('SqliteJobRepository', () => {
 
     expect(await repository.getById('math')).toEqual(enabled);
     expect(await repository.listEnabled()).toEqual([enabled]);
+    store.close();
+  });
+
+  it('creates a backup before saving a schedule change', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    directories.push(directory);
+    const store = new SqliteStore(join(directory, 'lectures.sqlite'));
+    await store.open();
+    const repository = new SqliteJobRepository(store);
+
+    await repository.save({
+      id: 'math',
+      enabled: true,
+      schedule: {
+        type: 'once',
+        date: '2026-09-28',
+        joinAt: '10:00',
+        leaveAt: '11:35',
+        timezone: 'Asia/Krasnoyarsk',
+      },
+      target: { type: 'search', course: 'Математика' },
+      browser: { headless: false },
+    });
+
+    expect(await readdir(join(directory, 'backups'))).toHaveLength(1);
     store.close();
   });
 });
