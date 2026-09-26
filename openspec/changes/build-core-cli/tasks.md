@@ -5,7 +5,7 @@
 - [x] 1.1 Инициализировать Node.js/TypeScript workspace с командами `build`, `test`, `lint`, `dev` и проверить успешные `npm ci`, `npm run build`, `npm test` на пустом каркасе
 - [x] 1.2 Настроить Vitest, ESLint и Prettier для TypeScript с 2-пробельным отступом и проверить `npm run lint` и `npm run format:check`
 - [x] 1.3 Создать доменные типы `Job`, `Occurrence`, `Run`, `RunStatus`, порты репозиториев, `Clock`, `LectureRunner` и тесты компиляции публичного API
-- [ ] 1.4 Реализовать redaction для cookies, query-параметров, Moodle/join URL и `sessionToken`; проверить таблицей примеров, что секреты не попадают в текст ошибок
+- [x] 1.4 Реализовать redaction для cookies, query-параметров, Moodle/join URL и `sessionToken`; проверить таблицей примеров, что секреты не попадают в текст ошибок
 
 ## 2. Расписание и жизненный цикл
 

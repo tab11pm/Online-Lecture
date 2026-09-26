@@ -12,3 +12,4 @@ export type {
   Schedule,
   Weekday,
 } from './types.js';
+export { redactSensitiveText } from './redaction.js';
