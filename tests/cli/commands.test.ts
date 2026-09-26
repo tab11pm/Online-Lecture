@@ -94,4 +94,40 @@ describe('executeCli', () => {
       ]),
     ).resolves.toEqual({ exitCode: 0, output: 'math\tscheduled\n' });
   });
+
+  it('runs one saved job without changing its configured deadline', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    directories.push(directory);
+    const databasePath = join(directory, 'lectures.sqlite');
+    const store = new SqliteStore(databasePath);
+    await store.open();
+    await new SqliteJobRepository(store).save({
+      id: 'math',
+      enabled: true,
+      schedule: {
+        type: 'once',
+        date: '2026-09-28',
+        joinAt: '10:00',
+        leaveAt: '11:35',
+        timezone: 'Asia/Krasnoyarsk',
+      },
+      target: { type: 'search', course: 'Математика' },
+      browser: { headless: false },
+    });
+    store.close();
+
+    await expect(
+      executeCli([
+        'run-once',
+        'math',
+        '--db',
+        databasePath,
+        '--now',
+        '2026-09-28T03:15:00Z',
+      ]),
+    ).resolves.toEqual({
+      exitCode: 0,
+      output: 'math\tscheduled\t2026-09-28T11:35:00.000+07:00\n',
+    });
+  });
 });
