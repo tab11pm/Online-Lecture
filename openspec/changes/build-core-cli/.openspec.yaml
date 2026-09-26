@@ -1,0 +1,4 @@
+schema: spec-driven
+created: 2026-09-26
+goal: Создать тестируемую основу этапа A, которую позднее используют SDO
+  MCP-адаптер и Electron UI.
