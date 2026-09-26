@@ -1,0 +1,91 @@
+import { parse } from 'yaml';
+import { z } from 'zod';
+
+import type { Job } from '../core/types.js';
+
+const time = z.string().regex(/^\d{2}:\d{2}$/, 'time must use HH:MM');
+const target = z
+  .object({
+    type: z.enum(['search', 'url']),
+    course: z.string().min(1).optional(),
+    lecture: z.string().min(1).optional(),
+    url: z.string().url().optional(),
+  })
+  .superRefine((value, context) => {
+    if (value.type === 'search' && value.course === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'target.type=search requires course',
+      });
+    }
+    if (
+      value.type === 'url' &&
+      (value.course !== undefined || value.lecture !== undefined)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message: 'target.type=url cannot include course or lecture',
+      });
+    }
+    if (value.type === 'url' && value.url === undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'target.type=url requires url',
+      });
+    }
+    if (
+      value.type === 'url' &&
+      value.url !== undefined &&
+      !isMoodleBbbUrl(value.url)
+    ) {
+      context.addIssue({
+        code: 'custom',
+        message:
+          'target.url must be an HTTPS Moodle BigBlueButton activity URL',
+      });
+    }
+  });
+
+const schema = z.object({
+  id: z.string().min(1),
+  enabled: z.boolean(),
+  schedule: z.discriminatedUnion('type', [
+    z.object({
+      type: z.literal('once'),
+      date: z.iso.date(),
+      joinAt: time,
+      leaveAt: time,
+      timezone: z.string().min(1),
+    }),
+    z.object({
+      type: z.literal('weekly'),
+      days: z
+        .array(z.enum(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']))
+        .min(1),
+      joinAt: time,
+      leaveAt: time,
+      timezone: z.string().min(1),
+    }),
+  ]),
+  target,
+  browser: z.object({ headless: z.boolean() }),
+});
+
+export function parseJobConfig(yaml: string): Job {
+  const result = schema.safeParse(parse(yaml));
+  if (!result.success)
+    throw new Error(
+      result.error.issues.map((issue) => issue.message).join('; '),
+    );
+  return result.data as Job;
+}
+
+function isMoodleBbbUrl(value: string): boolean {
+  const url = new URL(value);
+  return (
+    url.protocol === 'https:' &&
+    url.hostname === 'sdo.tusur.ru' &&
+    url.pathname === '/mod/bigbluebuttonbn/view.php' &&
+    url.searchParams.has('id')
+  );
+}

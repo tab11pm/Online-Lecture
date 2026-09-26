@@ -1,0 +1,14 @@
+id: math-monday
+enabled: true
+schedule:
+  type: weekly
+  days: [mon]
+  joinAt: '10:00'
+  leaveAt: '11:35'
+  timezone: Asia/Krasnoyarsk
+target:
+  type: search
+  course: 'Математика'
+  lecture: 'Онлайн-лекция'
+browser:
+  headless: false
