@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { mkdir, readdir, rm } from 'node:fs/promises';
+import { copyFile, mkdir, readdir, rename, rm } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
 const initialSchema = `
@@ -26,6 +26,32 @@ export class SqliteStore {
     this.database = new Database(this.path);
     this.database.exec(initialSchema);
     this.database.pragma('user_version = 1');
+  }
+
+  async openWithRecovery(): Promise<{
+    status: 'restored' | 'new';
+    diagnosticPath: string;
+  }> {
+    try {
+      await this.open();
+      return { status: 'new', diagnosticPath: '' };
+    } catch {
+      this.close();
+      const diagnosticPath = `${this.path}.corrupt-${Date.now()}`;
+      await rename(this.path, diagnosticPath);
+      const backupDirectory = join(dirname(this.path), 'backups');
+      const backups = (await readdir(backupDirectory).catch(() => []))
+        .filter((name) => name.endsWith('.sqlite'))
+        .sort();
+      const latest = backups.at(-1);
+      if (latest === undefined) {
+        await this.open();
+        return { status: 'new', diagnosticPath };
+      }
+      await copyFile(join(backupDirectory, latest), this.path);
+      await this.open();
+      return { status: 'restored', diagnosticPath };
+    }
   }
 
   migrationVersion(): number {

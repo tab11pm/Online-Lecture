@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm } from 'node:fs/promises';
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -38,5 +38,24 @@ describe('SqliteStore', () => {
 
     await expect(access(backupPath)).resolves.toBeUndefined();
     store.close();
+  });
+
+  it('recovers the latest backup after a database is corrupted', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, 'lectures.sqlite');
+    const initial = new SqliteStore(databasePath);
+    await initial.open();
+    await initial.createBackup();
+    initial.close();
+    await writeFile(databasePath, 'not a sqlite database');
+
+    const recovered = new SqliteStore(databasePath);
+    const result = await recovered.openWithRecovery();
+
+    expect(result.status).toBe('restored');
+    expect(result.diagnosticPath).toContain('.corrupt-');
+    expect(recovered.migrationVersion()).toBe(1);
+    recovered.close();
   });
 });
