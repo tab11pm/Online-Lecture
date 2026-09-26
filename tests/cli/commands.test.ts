@@ -71,4 +71,27 @@ describe('executeCli', () => {
       output: 'math\tenabled\tonce\n',
     });
   });
+
+  it('runs an active YAML job once without claiming a BBB connection', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    directories.push(directory);
+    const configPath = join(directory, 'job.yml');
+    const databasePath = join(directory, 'lectures.sqlite');
+    await writeFile(
+      configPath,
+      'id: math\nenabled: true\nschedule:\n  type: once\n  date: "2026-09-28"\n  joinAt: "10:00"\n  leaveAt: "11:35"\n  timezone: Asia/Krasnoyarsk\ntarget:\n  type: search\n  course: "Математика"\nbrowser:\n  headless: false\n',
+    );
+
+    await expect(
+      executeCli([
+        'run',
+        '--config',
+        configPath,
+        '--db',
+        databasePath,
+        '--now',
+        '2026-09-28T03:15:00Z',
+      ]),
+    ).resolves.toEqual({ exitCode: 0, output: 'math\tscheduled\n' });
+  });
 });

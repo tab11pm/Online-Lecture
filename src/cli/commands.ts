@@ -1,7 +1,9 @@
 import { readFile } from 'node:fs/promises';
 
 import { parseJobConfig } from '../config/job-config.js';
+import { Scheduler } from '../core/scheduler.js';
 import { SqliteJobRepository } from '../persistence/job-repository.js';
+import { SqliteRunRepository } from '../persistence/run-repository.js';
 import { SqliteStore } from '../persistence/sqlite-store.js';
 
 export interface CliResult {
@@ -45,6 +47,37 @@ export async function executeCli(argumentsList: string[]): Promise<CliResult> {
     };
   }
 
+  if (argumentsList[0] === 'run') {
+    const configPath = optionValue(argumentsList, '--config');
+    const databasePath = optionValue(argumentsList, '--db');
+    if (configPath === undefined || databasePath === undefined) {
+      return {
+        exitCode: 1,
+        output: 'run requires --config <yaml> and --db <sqlite>\n',
+      };
+    }
+    try {
+      const job = parseJobConfig(await readFile(configPath, 'utf8'));
+      const store = new SqliteStore(databasePath);
+      await store.open();
+      const jobs = new SqliteJobRepository(store);
+      await jobs.save(job);
+      const runs = await new Scheduler(
+        jobs,
+        new SqliteRunRepository(store),
+        noOpRunner,
+      ).check(nowFrom(argumentsList));
+      store.close();
+      return {
+        exitCode: 0,
+        output: runs.map((run) => `${run.jobId}\t${run.status}\n`).join(''),
+      };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { exitCode: 1, output: `Run failed: ${message}\n` };
+    }
+  }
+
   return { exitCode: 1, output: 'Unknown command\n' };
 }
 
@@ -55,3 +88,16 @@ function optionValue(
   const index = argumentsList.indexOf(option);
   return index === -1 ? undefined : argumentsList[index + 1];
 }
+
+function nowFrom(argumentsList: string[]): Date {
+  const value = optionValue(argumentsList, '--now');
+  const now = value === undefined ? new Date() : new Date(value);
+  if (Number.isNaN(now.getTime()))
+    throw new Error('--now must be an ISO timestamp');
+  return now;
+}
+
+const noOpRunner = {
+  start: async () => undefined,
+  stop: async () => undefined,
+};
