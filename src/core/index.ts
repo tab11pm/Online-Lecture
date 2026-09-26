@@ -14,3 +14,4 @@ export type {
 } from './types.js';
 export { redactSensitiveText } from './redaction.js';
 export { findActiveOccurrence } from './occurrence.js';
+export { completeRun, transitionRun } from './lifecycle.js';
