@@ -28,6 +28,19 @@ describe('SqliteStore', () => {
     store.close();
   });
 
+  it('creates a missing parent directory for the database file', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    temporaryDirectories.push(directory);
+    const store = new SqliteStore(
+      join(directory, 'missing', 'lectures.sqlite'),
+    );
+
+    await store.open();
+
+    expect(store.migrationVersion()).toBe(1);
+    store.close();
+  });
+
   it('creates a local backup before a schedule change', async () => {
     const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
     temporaryDirectories.push(directory);

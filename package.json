@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "tsc --noEmit",
+    "cli": "tsx src/cli/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",

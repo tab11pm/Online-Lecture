@@ -1,0 +1,13 @@
+id: invalid-bbb
+enabled: true
+schedule:
+  type: once
+  date: '2026-09-28'
+  joinAt: '10:00'
+  leaveAt: '11:35'
+  timezone: Asia/Krasnoyarsk
+target:
+  type: url
+  url: 'https://bbb2.tusur.ru/html5client/'
+browser:
+  headless: false

@@ -23,6 +23,7 @@ export class SqliteStore {
   constructor(private readonly path: string) {}
 
   async open(): Promise<void> {
+    await mkdir(dirname(this.path), { recursive: true });
     this.database = new Database(this.path);
     this.database.exec(initialSchema);
     this.database.pragma('user_version = 1');

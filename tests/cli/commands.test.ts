@@ -1,6 +1,7 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -40,6 +41,19 @@ describe('executeCli', () => {
     await expect(executeCli(['auth', 'check'])).resolves.toEqual({
       exitCode: 2,
       output: 'SDO MCP adapter is not configured\n',
+    });
+  });
+
+  it('rejects the invalid BBB fixture through the CLI', async () => {
+    const fixturePath = fileURLToPath(
+      new URL('../fixtures/invalid-bbb-url.yml', import.meta.url),
+    );
+
+    await expect(
+      executeCli(['config', 'validate', '--config', fixturePath]),
+    ).resolves.toMatchObject({
+      exitCode: 1,
+      output: expect.stringContaining('Configuration is invalid'),
     });
   });
 
