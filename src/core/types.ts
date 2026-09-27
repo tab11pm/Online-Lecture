@@ -129,3 +129,19 @@ export interface SessionConfig {
   timeout: number;
   joinTimeout: number;
 }
+
+export interface SessionState {
+  isConnected: boolean;
+  isAudioEnabled: boolean;
+  isVideoEnabled: boolean;
+  participantsCount?: number;
+  meetingStatus: 'waiting_room' | 'connected' | 'ended' | 'error';
+}
+
+export interface BbbSession {
+  page: any; // Playwright Page object
+  status: 'starting' | 'started' | 'joining' | 'joined' | 'monitoring' | 'leaving' | 'left' | 'error';
+  url: string;
+  meetingId?: string;
+  startedAt: Date;
+}

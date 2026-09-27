@@ -1,0 +1,22 @@
+headless: false
+timeout: 30000
+joinTimeout: 10000
+monitorInterval: 5000
+sessionRetryAttempts: 3
+sessionRetryDelayMs: 5000
+
+# Test meeting URLs
+testMeetings:
+  - url: "https://bbb2.tusur.ru/b/test1234567890"
+    meetingId: "test1234567890"
+    name: "Test Lecture 1"
+  - url: "https://bbb2.tusur.ru/b/test9876543210"
+    meetingId: "test9876543210"
+    name: "Test Lecture 2"
+
+# Expected selectors for BBB interface
+selectors:
+  listenOnlyButton: "button:has-text('Listen Only')"
+  leaveButton: "[data-testid='leave-button']"
+  audioConnected: "[data-testid='audio-connected']"
+  participants: "[data-testid='user-list']"
