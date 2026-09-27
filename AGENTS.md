@@ -13,11 +13,33 @@ As code is introduced, keep core logic independent of Electron UI and organize t
 
 ## Development, Build, and Test Commands
 
-No build system or package manifest exists yet, so do not invent or document executable commands as if they work. When the Node workspace is added, record the actual commands in `package.json` and update this guide. Expected categories are:
+The Node workspace is now initialized with a complete build pipeline. All commands below are functional and documented in `package.json`.
 
-- `npm run dev` — run the local development application.
-- `npm test` — execute unit and contract tests.
-- `npm run build` — create production artifacts.
+### Core Commands
+
+- `npm test` — execute unit and integration tests (60 tests across 16 files)
+- `npm run build` — TypeScript compilation check (`tsc --noEmit`)
+- `npm run cli -- <command> [args]` — run CLI commands (note the `--` separator)
+
+### CLI Commands (Phase B)
+
+All commands require `--db <path>` for SQLite database location. Use `--` after `npm run cli` to pass arguments:
+
+```bash
+# List all scheduled jobs
+npm run cli -- jobs list --db ./data/lectures.db
+
+# Run a scheduled job with direct BBB URL
+npm run cli -- run-job <job-id> <occurrence-id> --db ./data/lectures.db
+
+# Run a job with MCP search (course/lecture lookup)
+SDO_MCP_SERVER_PATH=/path/to/sdo-mcp npm run cli -- run-job <job-id> <occurrence-id> --db ./data/lectures.db
+```
+
+### Environment Variables
+
+- `SDO_MCP_SERVER_PATH` — Path to SDO MCP server executable (optional, defaults to `sdo-mcp`)
+- `MCP_TIMEOUT_MS` — MCP connection timeout in milliseconds (optional, defaults to 5000)
 
 Use OpenSpec to propose and review meaningful changes before implementing them; keep implementation aligned with the approved specification change.
 
