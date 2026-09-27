@@ -1,0 +1,49 @@
+{
+  "authenticate": {
+    "success": {
+      "token": "test-session-token-12345",
+      "expiresAt": "2026-09-28T10:00:00.000Z"
+    },
+    "failure": {
+      "error": "Invalid credentials"
+    }
+  },
+  "listCourses": {
+    "success": {
+      "courses": [
+        {
+          "id": "course-001",
+          "name": "Программирование на Python"
+        },
+        {
+          "id": "course-002",
+          "name": "Базы данных"
+        },
+        {
+          "id": "course-003",
+          "name": "Компьютерные сети"
+        }
+      ]
+    }
+  },
+  "findBbbActivity": {
+    "success": {
+      "activity": {
+        "id": "activity-123",
+        "name": "Лекция 1: Введение в Python",
+        "courseId": "course-001",
+        "startTime": "2026-09-28T14:00:00.000Z"
+      }
+    },
+    "notFound": {
+      "error": "Activity not found"
+    }
+  },
+  "getBbbUrl": {
+    "success": {
+      "url": "https://bbb2.tusur.ru/meeting123",
+      "meetingId": "meeting-123-abc",
+      "activityId": "activity-123"
+    }
+  }
+}

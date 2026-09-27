@@ -89,3 +89,43 @@ export interface LectureRunner {
   start(occurrence: Occurrence): Promise<void>;
   stop(occurrence: Occurrence, reason: CompletionReason): Promise<void>;
 }
+
+// MCP Client types
+export interface Credentials {
+  username: string;
+  password: string;
+}
+
+export interface Session {
+  token: string;
+  expiresAt: Date;
+}
+
+export interface Course {
+  id: string;
+  name: string;
+}
+
+export interface BbbActivity {
+  id: string;
+  name: string;
+  courseId: string;
+  startTime?: string;
+}
+
+export interface BbbUrl {
+  url: string;
+  meetingId: string;
+  activityId: string;
+}
+
+export interface McpConfig {
+  serverPath: string;
+  connectionTimeout: number;
+}
+
+export interface SessionConfig {
+  headless: boolean;
+  timeout: number;
+  joinTimeout: number;
+}
