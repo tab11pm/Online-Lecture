@@ -186,7 +186,9 @@ export class PlaywrightBbbSessionManager {
             ctx.fillRect(0, 0, 320, 240);
           }
           const videoTrack = canvas.captureStream(30).getVideoTracks()[0];
-          stream.addTrack(videoTrack);
+          if (videoTrack) {
+            stream.addTrack(videoTrack);
+          }
         }
 
         // If audio was requested, add a silent audio track
@@ -197,10 +199,11 @@ export class PlaywrightBbbSessionManager {
           gain.gain.setValueAtTime(0, audioContext.currentTime); // Mute
           oscillator.connect(gain);
           gain.connect(audioContext.destination);
-          const audioTrack = audioContext
-            .createMediaStreamAudioDestination()
-            .stream.getAudioTracks()[0];
-          stream.addTrack(audioTrack);
+          const dest = audioContext.createMediaStreamDestination();
+          const audioTrack = dest.stream.getAudioTracks()[0];
+          if (audioTrack) {
+            stream.addTrack(audioTrack);
+          }
         }
 
         return stream;

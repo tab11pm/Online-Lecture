@@ -113,7 +113,7 @@ describe('JobRunner', () => {
     });
 
     it('should handle job not found gracefully', async () => {
-      mockJobRepo.getById.mockResolvedValueOnce(null);
+      (mockJobRepo.getById as any).mockResolvedValueOnce(null);
 
       const result = await runner.runJob('invalid-job', 'occ-1');
 
@@ -122,7 +122,7 @@ describe('JobRunner', () => {
     });
 
     it('should handle session start errors', async () => {
-      mockBbbManager.startSession.mockRejectedValueOnce(
+      (mockBbbManager.startSession as any).mockRejectedValueOnce(
         new Error('Browser failed')
       );
 

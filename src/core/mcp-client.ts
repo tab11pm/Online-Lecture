@@ -59,13 +59,13 @@ export class SdoMcpClient {
     }
 
     try {
-      const response = await this.client.request(
+      const response = (await this.client.request(
         { method: 'sdo/authenticate' },
         {
           username: credentials.username,
           password: credentials.password,
-        }
-      ) as { token: string; expiresAt: string };
+        } as any
+      )) as { token: string; expiresAt: string };
 
       this.session = {
         token: response.token,
@@ -93,10 +93,10 @@ export class SdoMcpClient {
     this.validateSession(session);
 
     try {
-      const response = await this.client.request(
+      const response = (await this.client.request(
         { method: 'sdo/listCourses' },
-        { token: session.token }
-      ) as { courses: Course[] };
+        { token: session.token } as any
+      )) as { courses: Course[] };
 
       return response.courses;
     } catch (error) {
@@ -124,14 +124,14 @@ export class SdoMcpClient {
     }
 
     try {
-      const response = await this.client.request(
+      const response = (await this.client.request(
         { method: 'sdo/findBbbActivity' },
         {
           token: this.session.token,
           courseId,
           lectureName,
-        }
-      ) as { activity: BbbActivity };
+        } as any
+      )) as { activity: BbbActivity };
 
       return response.activity;
     } catch (error) {
@@ -156,13 +156,13 @@ export class SdoMcpClient {
     }
 
     try {
-      const response = await this.client.request(
+      const response = (await this.client.request(
         { method: 'sdo/getBbbUrl' },
         {
           token: this.session.token,
           activityId,
-        }
-      ) as BbbUrl;
+        } as any
+      )) as BbbUrl;
 
       return response;
     } catch (error) {
@@ -199,8 +199,8 @@ export class SdoMcpClient {
       throw new Error('Session mismatch');
     }
 
-    if (new Date() >= session.expiresAt) {
-      throw new Error('Session expired. Re-authenticate.');
+    if (session.expiresAt < new Date()) {
+      throw new Error('Session expired');
     }
   }
 }

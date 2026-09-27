@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SdoMcpClient } from '../../src/core/mcp-client.js';
-import type { Session, Course, BbbActivity, BbbUrl } from '../../src/core/types.js';
+import type { Session, Course, BbbActivity, BbbUrl, Credentials } from '../../src/core/types.js';
 
 // Mock the MCP SDK
 vi.mock('@modelcontextprotocol/sdk', () => ({
