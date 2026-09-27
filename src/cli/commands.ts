@@ -91,7 +91,7 @@ export async function executeCli(argumentsList: string[]): Promise<CliResult> {
     const positional: string[] = [];
     for (let i = 1; i < argumentsList.length; i++) {
       const arg = argumentsList[i];
-      if (arg.startsWith('--')) {
+      if (!arg || arg.startsWith('--')) {
         i++; // Skip the next item (option value)
         continue;
       }
