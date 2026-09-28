@@ -19,12 +19,13 @@ export type Schedule =
 export type LectureTarget =
   | {
       type: 'search';
-      course: string;
-      lecture?: string;
+      courseId?: string;
+      courseName?: string;
+      lectureQuery?: string;
     }
   | {
-      type: 'url';
-      url: string;
+      type: 'direct';
+      activityUrl: string;
     };
 
 export interface Job {
@@ -104,13 +105,15 @@ export interface Session {
 export interface Course {
   id: string;
   name: string;
+  url?: string;
 }
 
 export interface BbbActivity {
   id: string;
   name: string;
-  courseId: string;
-  startTime?: string;
+  courseUrl: string;
+  activityUrl: string;
+  type: 'lecture' | 'practical';
 }
 
 export interface BbbUrl {
@@ -121,13 +124,16 @@ export interface BbbUrl {
 
 export interface McpConfig {
   serverPath: string;
-  connectionTimeout: number;
+  timeout?: number;
+  connectionTimeout?: number;
 }
 
 export interface SessionConfig {
-  headless: boolean;
-  timeout: number;
-  joinTimeout: number;
+  headless?: boolean;
+  timeout?: number;
+  joinTimeout?: number;
+  skipAudioSetup?: boolean;
+  skipVideoSetup?: boolean;
 }
 
 export interface SessionState {

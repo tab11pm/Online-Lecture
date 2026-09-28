@@ -74,9 +74,9 @@ export class JobRunner {
       // Resolve BBB URL
       let bbbUrl = '';
 
-      if (job.target.type === 'url') {
+      if (job.target.type === 'direct') {
         // Direct URL target
-        bbbUrl = job.target.url;
+        bbbUrl = job.target.activityUrl;
         result.status = 'joining';
         dbRun.status = 'joining';
       } else if (job.target.type === 'search' && credentials) {
@@ -87,13 +87,15 @@ export class JobRunner {
         try {
           const session = await this.mcpClient.authenticate(credentials);
 
+          const courseId = job.target.courseId || job.target.courseName || '';
+          const lectureQuery = job.target.lectureQuery || 'Lecture';
+
           const activity = await this.mcpClient.findBbbActivity(
-            job.target.course,
-            job.target.lecture || 'Lecture'
+            courseId,
+            lectureQuery
           );
 
-          const bbbUrlObj = await this.mcpClient.getBbbUrl(activity.id);
-          bbbUrl = bbbUrlObj.url;
+          bbbUrl = activity.activityUrl;
 
           await this.mcpClient.close();
         } catch (error) {
@@ -106,7 +108,7 @@ export class JobRunner {
         dbRun.status = 'joining';
       } else {
         throw new Error(
-          'Cannot resolve target: URL type requires direct URL, search type requires credentials'
+          'Cannot resolve target: direct type requires activityUrl, search type requires credentials'
         );
       }
 
@@ -125,49 +127,30 @@ export class JobRunner {
       try {
         session = await this.bbbManager.startSession(bbbUrl, sessionConfig);
 
-        // Join as listener
+        // Join session
         result.status = 'joining';
         dbRun.status = 'joining';
         await this.runRepo.update(dbRun);
 
-        await this.bbbManager.joinAsListener(session);
+        await this.bbbManager.joinSession(session);
 
         // Monitor session
         result.status = 'connected';
         dbRun.status = 'connected';
         await this.runRepo.update(dbRun);
 
-        // Simple monitoring: wait for session to end or timeout
-        let isStillConnected = true;
-        const monitorStartTime = Date.now();
+        // Monitor for up to 4 hours or until session ends
         const maxMonitorTime = 4 * 60 * 60 * 1000; // 4 hours max
-
-        while (
-          isStillConnected &&
-          Date.now() - monitorStartTime < maxMonitorTime
-        ) {
-          try {
-            const state: SessionState =
-              await this.bbbManager.monitorSession(session);
-            isStillConnected = state.isConnected;
-
-            if (!isStillConnected) {
-              result.completionReason = 'meeting_ended';
-            }
-          } catch (error) {
-            // Error during monitoring might mean session ended
+        try {
+          await this.bbbManager.monitorSession(session, maxMonitorTime);
+          result.completionReason = 'meeting_ended';
+        } catch (error) {
+          // Timeout or monitoring error
+          if (error instanceof Error && error.message.includes('timeout')) {
+            result.completionReason = 'deadline';
+          } else {
             result.completionReason = 'error';
-            isStillConnected = false;
           }
-
-          // Check every 30 seconds
-          if (isStillConnected) {
-            await new Promise((resolve) => setTimeout(resolve, 30000));
-          }
-        }
-
-        if (Date.now() - monitorStartTime >= maxMonitorTime) {
-          result.completionReason = 'deadline';
         }
       } catch (error) {
         result.status = 'failed';
