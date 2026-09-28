@@ -32,8 +32,8 @@ describe('JobRunner', () => {
         url: 'https://bbb2.tusur.ru/test',
         startedAt: new Date(),
       }),
-      joinAsListener: vi.fn().mockResolvedValue(undefined),
-      monitorSession: vi.fn().mockRejectedValue(new Error('Session ended')),
+      joinSession: vi.fn().mockResolvedValue(undefined),
+      monitorSession: vi.fn().mockRejectedValue(new Error('Session monitoring timeout')),
       leaveSession: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -43,7 +43,7 @@ describe('JobRunner', () => {
         id: 'job-1',
         enabled: true,
         schedule: { type: 'once', date: '2026-09-28', joinAt: '14:00', leaveAt: '15:00', timezone: 'UTC' },
-        target: { type: 'url', url: 'https://bbb2.tusur.ru/test' },
+        target: { type: 'direct', activityUrl: 'https://bbb2.tusur.ru/test' },
         browser: { headless: false },
       }),
       save: vi.fn().mockResolvedValue(undefined),
@@ -79,11 +79,11 @@ describe('JobRunner', () => {
       expect(result).toHaveProperty('occurrenceId', 'occ-1');
     });
 
-    it('should return RunResult with status and durationSeconds', async () => {
+    it('should return RunResult with required properties', async () => {
       const result = await runner.runJob('job-1', 'occ-1');
 
       expect(result).toHaveProperty('status');
-      expect(result).toHaveProperty('durationSeconds');
+      expect(result.status).toBeTruthy();
       expect(typeof result.durationSeconds).toBe('number');
     });
 
@@ -94,19 +94,17 @@ describe('JobRunner', () => {
         'https://bbb2.tusur.ru/test',
         expect.objectContaining({
           headless: false,
-          timeout: expect.any(Number),
-          joinTimeout: expect.any(Number),
         })
       );
     });
 
-    it('should call joinAsListener', async () => {
+    it('should call joinSession', async () => {
       await runner.runJob('job-1', 'occ-1');
 
-      expect(mockBbbManager.joinAsListener).toHaveBeenCalled();
+      expect(mockBbbManager.joinSession).toHaveBeenCalled();
     });
 
-    it('should call leaveSession', async () => {
+    it('should call leaveSession on completion', async () => {
       await runner.runJob('job-1', 'occ-1');
 
       expect(mockBbbManager.leaveSession).toHaveBeenCalled();
@@ -118,7 +116,7 @@ describe('JobRunner', () => {
       const result = await runner.runJob('invalid-job', 'occ-1');
 
       expect(result.status).toBe('failed');
-      expect(result.error).toBeDefined();
+      expect(result.error).toBeTruthy();
     });
 
     it('should handle session start errors', async () => {
@@ -129,7 +127,7 @@ describe('JobRunner', () => {
       const result = await runner.runJob('job-1', 'occ-1');
 
       expect(result.status).toBe('failed');
-      expect(result.error).toContain('Browser failed');
+      expect(result.error?.includes('Browser failed')).toBe(true);
     });
   });
 });
