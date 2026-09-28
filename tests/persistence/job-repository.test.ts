@@ -36,7 +36,7 @@ describe('SqliteJobRepository', () => {
         timezone: 'Asia/Krasnoyarsk',
       },
       target: {
-        type: 'url',
+        type: 'direct',
         url: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
       },
       browser: { headless: false },
