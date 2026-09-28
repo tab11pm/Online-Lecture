@@ -1,0 +1,14 @@
+id: test-1
+name: Test Job
+enabled: true
+schedule:
+  type: once
+  date: '2026-09-28'
+  joinAt: '14:00'
+  leaveAt: '15:00'
+  timezone: UTC
+target:
+  type: url
+  url: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=123'
+browser:
+  headless: true

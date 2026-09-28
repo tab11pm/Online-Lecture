@@ -148,6 +148,9 @@ export async function executeCli(argumentsList: string[]): Promise<CliResult> {
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      const stack = error instanceof Error ? error.stack : '';
+      console.error('[ERROR]', message);
+      if (stack) console.error(stack);
       return { exitCode: 1, output: `run-job failed: ${message}\n` };
     }
   }
