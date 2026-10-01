@@ -22,6 +22,19 @@ export class SqliteJobRepository implements JobRepository {
     return row === undefined ? undefined : (JSON.parse(row.payload) as Job);
   }
 
+  async listAll(): Promise<Job[]> {
+    const rows = this.store
+      .getDatabase()
+      .prepare('SELECT payload FROM jobs ORDER BY id')
+      .all() as Array<{ payload: string }>;
+    return rows.map((row) => JSON.parse(row.payload) as Job);
+  }
+
+  async delete(id: string): Promise<void> {
+    await this.store.createBackup();
+    this.store.getDatabase().prepare('DELETE FROM jobs WHERE id = ?').run(id);
+  }
+
   async save(job: Job): Promise<void> {
     await this.store.createBackup();
     this.store

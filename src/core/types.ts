@@ -100,6 +100,8 @@ export interface JobRepository {
   listEnabled(): Promise<Job[]>;
   getById(id: string): Promise<Job | undefined>;
   save(job: Job): Promise<void>;
+  listAll?(): Promise<Job[]>;
+  delete?(id: string): Promise<void>;
 }
 
 export interface RunRepository {

@@ -7,17 +7,31 @@ import { JobRunner } from '../core/job-runner.js';
 import { SdoMcpClient } from '../core/mcp-client.js';
 import { PlaywrightBbbSessionManager } from '../core/bbb-session.js';
 import { Scheduler } from '../core/scheduler.js';
-import type { LectureRunner } from '../core/types.js';
+import type { LectureRunner, OnlineLectureResolver } from '../core/types.js';
 import { SqliteJobRepository } from '../persistence/job-repository.js';
 import { SqliteRunRepository } from '../persistence/run-repository.js';
 import { SqliteStore } from '../persistence/sqlite-store.js';
+import { mergeImportedJobs } from '../timetable/import-merger.js';
+import type { HttpFetcher } from '../timetable/http-fetcher.js';
+import { groupOnlineDisciplines } from '../timetable/online-selector.js';
+import { TimetableClient } from '../timetable/timetable-client.js';
+import { buildImportedJobs } from '../timetable/timetable-importer.js';
 
 export interface CliResult {
   exitCode: number;
   output: string;
 }
 
-export async function executeCli(argumentsList: string[]): Promise<CliResult> {
+export interface CliDependencies {
+  createFetcher?: (authStatePath?: string) => Promise<HttpFetcher>;
+  createResolver?: () => Promise<OnlineLectureResolver>;
+  now?: () => Date;
+}
+
+export async function executeCli(
+  argumentsList: string[],
+  dependencies: CliDependencies = {},
+): Promise<CliResult> {
   if (argumentsList[0] === 'auth' && argumentsList[1] === 'check') {
     return { exitCode: 2, output: 'SDO MCP adapter is not configured\n' };
   }
@@ -51,6 +65,72 @@ export async function executeCli(argumentsList: string[]): Promise<CliResult> {
         .map((job) => `${job.id}\tenabled\t${job.schedule.type}\n`)
         .join(''),
     };
+  }
+
+  if (argumentsList[0] === 'import') {
+    const databasePath = optionValue(argumentsList, '--db');
+    if (databasePath === undefined) {
+      return { exitCode: 1, output: 'Missing required --db <sqlite>\n' };
+    }
+
+    const authStatePath = optionValue(argumentsList, '--auth-state');
+    const facultyOption = optionValue(argumentsList, '--faculty');
+    const groupOption = optionValue(argumentsList, '--group');
+
+    let store: SqliteStore | undefined;
+    try {
+      const fetcher = await (dependencies.createFetcher ?? defaultFetcher)(
+        authStatePath,
+      );
+      const client = new TimetableClient({ fetcher });
+      const { faculty, group } =
+        facultyOption !== undefined && groupOption !== undefined
+          ? { faculty: facultyOption, group: groupOption }
+          : await client.discoverGroup();
+
+      const lessons = await client.fetchOnlineLessons(faculty, group);
+      if (lessons.length === 0) {
+        return { exitCode: 0, output: 'No online lessons found\n' };
+      }
+
+      const { disciplines } = await groupOnlineDisciplines(
+        lessons,
+        (lessonId) => client.fetchCourseLinks(lessonId),
+      );
+      const resolver = await (dependencies.createResolver ?? defaultResolver)();
+      const built = await buildImportedJobs({
+        faculty,
+        group,
+        disciplines,
+        resolver,
+      });
+
+      store = new SqliteStore(databasePath);
+      await store.open();
+      const jobRepo = new SqliteJobRepository(store);
+      const existing = await jobRepo.listAll();
+      const { jobs, summary } = mergeImportedJobs(existing, built.jobs);
+
+      const resultIds = new Set(jobs.map((job) => job.id));
+      for (const old of existing) {
+        if (old.source === 'timetable' && !resultIds.has(old.id)) {
+          await jobRepo.delete(old.id);
+        }
+      }
+      for (const job of jobs) {
+        await jobRepo.save(job);
+      }
+
+      const output =
+        `Imported: ${summary.jobsCreated} created, ${summary.jobsDeleted} deleted, ` +
+        `${summary.added} added, ${summary.removed} removed\n`;
+      return { exitCode: 0, output };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return { exitCode: 1, output: `Import failed: ${message}\n` };
+    } finally {
+      store?.close();
+    }
   }
 
   if (argumentsList[0] === 'run') {
@@ -216,3 +296,11 @@ const noOpRunner: LectureRunner = {
   start: async () => undefined,
   stop: async () => undefined,
 };
+
+async function defaultFetcher(): Promise<HttpFetcher> {
+  throw new Error('Authenticated fetcher is not configured');
+}
+
+async function defaultResolver(): Promise<OnlineLectureResolver> {
+  return new SdoMcpClient(loadMcpConfig());
+}
