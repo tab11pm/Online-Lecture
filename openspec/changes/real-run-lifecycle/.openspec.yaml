@@ -1,0 +1,5 @@
+schema: spec-driven
+created: 2026-09-29
+goal: Реализовать полный lifecycle BBB-сессии с deadline, retry и graceful shutdown.
+depends_on:
+  - build-core-cli
