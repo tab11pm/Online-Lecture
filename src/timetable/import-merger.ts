@@ -13,7 +13,9 @@ export interface MergeSummary {
 export function mergeImportedJobs(
   existing: Job[],
   imported: Job[],
+  options: { prune?: boolean } = {},
 ): { jobs: Job[]; summary: MergeSummary } {
+  const prune = options.prune ?? true;
   const summary: MergeSummary = {
     added: 0,
     removed: 0,
@@ -39,6 +41,10 @@ export function mergeImportedJobs(
 
     const importedJob = importedById.get(job.id);
     if (importedJob === undefined) {
+      if (!prune) {
+        jobs.push(structuredClone(job));
+        continue;
+      }
       const occurrences = occurrencesOf(job);
       const preserved = occurrences.filter(
         (occurrence) => occurrence.edited || occurrence.suppressed,

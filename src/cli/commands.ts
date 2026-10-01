@@ -82,7 +82,10 @@ export async function executeCli(
       const fetcher = await (dependencies.createFetcher ?? defaultFetcher)(
         authStatePath,
       );
-      const client = new TimetableClient({ fetcher });
+      const client = new TimetableClient({
+        fetcher,
+        year: new Date((dependencies.now ?? (() => new Date()))()).getFullYear(),
+      });
       const { faculty, group } =
         facultyOption !== undefined && groupOption !== undefined
           ? { faculty: facultyOption, group: groupOption }
@@ -105,11 +108,22 @@ export async function executeCli(
         resolver,
       });
 
+      if (built.authRequired) {
+        return {
+          exitCode: 1,
+          output: 'Authentication required for SDO; no changes applied\n',
+        };
+      }
+
       store = new SqliteStore(databasePath);
       await store.open();
       const jobRepo = new SqliteJobRepository(store);
       const existing = await jobRepo.listAll();
-      const { jobs, summary } = mergeImportedJobs(existing, built.jobs);
+      const complete =
+        built.unresolved.length === 0 && built.ambiguous.length === 0;
+      const { jobs, summary } = mergeImportedJobs(existing, built.jobs, {
+        prune: complete,
+      });
 
       const resultIds = new Set(jobs.map((job) => job.id));
       for (const old of existing) {

@@ -66,6 +66,15 @@ describe('mergeImportedJobs', () => {
     expect(summary.jobsDeleted).toBe(1);
   });
 
+  it('keeps an untouched timetable job when pruning is disabled', () => {
+    const existing = [base({
+      schedule: { type: 'imported', timezone: 'Asia/Tomsk', occurrences: [occ('2026-09-30')] },
+    })];
+    const { jobs, summary } = mergeImportedJobs(existing, [], { prune: false });
+    expect(jobs).toEqual(existing);
+    expect(summary.jobsDeleted).toBe(0);
+  });
+
   it('suppresses an imported occurrence that duplicates a manual pair', () => {
     const manual: Job = {
       ...base({}),
