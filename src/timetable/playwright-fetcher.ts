@@ -22,7 +22,13 @@ export async function createPlaywrightFetcher({
   }
 
   const browser = await chromium.launch();
-  const context = await browser.newContext({ storageState: authStatePath });
+  let context;
+  try {
+    context = await browser.newContext({ storageState: authStatePath });
+  } catch (error) {
+    await browser.close();
+    throw error;
+  }
 
   return {
     async get(url: string): Promise<string> {
@@ -36,8 +42,11 @@ export async function createPlaywrightFetcher({
       }
     },
     async close(): Promise<void> {
-      await context.close();
-      await browser.close();
+      try {
+        await context.close();
+      } finally {
+        await browser.close();
+      }
     },
   };
 }
