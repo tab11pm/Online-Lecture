@@ -7,12 +7,14 @@ import type {
   BbbActivity,
   BbbUrl,
   McpConfig,
+  OnlineLectureResolution,
+  OnlineLectureResolver,
 } from './types.js';
 
 /**
  * SDO MCP Client - communicates with SDO MCP server via stdio protocol
  */
-export class SdoMcpClient {
+export class SdoMcpClient implements OnlineLectureResolver {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
   private session: Session | null = null;
@@ -170,6 +172,26 @@ export class SdoMcpClient {
         `Failed to get BBB URL: ${error instanceof Error ? error.message : 'Unknown error'}`
       );
     }
+  }
+
+  /**
+   * Resolve an online lecture to a course and BBB module via the MCP server
+   */
+  async resolveOnlineLecture(input: {
+    courseUrl?: string;
+    courseQuery?: string;
+    lectureQuery?: string;
+  }): Promise<OnlineLectureResolution> {
+    await this.ensureConnected();
+
+    if (!this.client) {
+      throw new Error('MCP client not initialized');
+    }
+
+    return (await this.client.request(
+      { method: 'sdo/resolveOnlineLecture' },
+      input as any,
+    )) as OnlineLectureResolution;
   }
 
   /**
