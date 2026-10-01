@@ -1,6 +1,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { SdoMcpClient } from '../../src/core/mcp-client.js';
-import type { Session, Course, BbbActivity, BbbUrl, Credentials } from '../../src/core/types.js';
+import type {
+  Session,
+  Course,
+  BbbActivity,
+  BbbUrl,
+  Credentials,
+} from '../../src/core/types.js';
 
 // Mock the MCP SDK
 vi.mock('@modelcontextprotocol/sdk', () => ({
@@ -55,9 +61,13 @@ describe('SdoMcpClient', () => {
   describe('resolveOnlineLecture', () => {
     it('returns the resolver payload from the MCP server', async () => {
       const c = new SdoMcpClient(mockConfig) as any;
-      c.client = { request: vi.fn().mockResolvedValue({ status: 'not_found' }) };
+      c.client = {
+        request: vi.fn().mockResolvedValue({ status: 'not_found' }),
+      };
       await expect(
-        c.resolveOnlineLecture({ courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413' }),
+        c.resolveOnlineLecture({
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+        }),
       ).resolves.toEqual({ status: 'not_found' });
       expect(c.client.request).toHaveBeenCalledWith(
         { method: 'sdo/resolveOnlineLecture' },

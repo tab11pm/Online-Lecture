@@ -14,12 +14,18 @@ describe('timetable parser', () => {
   it('finds the personal schedule link and splits faculty and group', () => {
     const href = discoverMyScheduleHref(home);
     expect(href).toBe('http://timetable.tusur.ru/faculties/fvs/groups/574-1');
-    expect(parseFacultyAndGroup(href!)).toEqual({ faculty: 'fvs', group: '574-1' });
+    expect(parseFacultyAndGroup(href!)).toEqual({
+      faculty: 'fvs',
+      group: '574-1',
+    });
   });
 
   it('collects unique sorted week ids', () => {
-    expect(parseWeekIds('<a href="/fvs/groups/574-1?week_id=841"></a><a href="/fvs/groups/574-1?week_id=839"></a><a href="/fvs/groups/574-1?week_id=839"></a>'))
-      .toEqual([839, 841]);
+    expect(
+      parseWeekIds(
+        '<a href="/fvs/groups/574-1?week_id=841"></a><a href="/fvs/groups/574-1?week_id=839"></a><a href="/fvs/groups/574-1?week_id=839"></a>',
+      ),
+    ).toEqual([839, 841]);
   });
 
   it('parses lessons and uses the full discipline name, not the abbreviation', () => {

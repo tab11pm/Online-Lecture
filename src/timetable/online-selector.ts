@@ -19,7 +19,10 @@ export async function groupOnlineDisciplines(
     if (!courseIdCache.has(lesson.discipline)) {
       const links = await fetchCourseLinks(lesson.lessonId);
       const first = links[0];
-      courseIdCache.set(lesson.discipline, first ? extractSdoCourseId(first) : undefined);
+      courseIdCache.set(
+        lesson.discipline,
+        first ? extractSdoCourseId(first) : undefined,
+      );
     }
 
     const sdoCourseId = courseIdCache.get(lesson.discipline);

@@ -78,12 +78,7 @@ export function mergeImportedJobs(
     }
 
     const occurrences = occurrencesOf(job).map((occurrence) =>
-      applyManualDedup(
-        occurrence,
-        disciplineOf(job),
-        onceKeys,
-        weeklyPairs,
-      ),
+      applyManualDedup(occurrence, disciplineOf(job), onceKeys, weeklyPairs),
     );
 
     const merged = structuredClone(job);
