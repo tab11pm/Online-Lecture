@@ -88,4 +88,116 @@ describe('cli import', () => {
     expect(jobs.map((j) => j.id)).toEqual(['manual-1']);
     reopened.close();
   });
+
+  it('keeps saved timetable jobs when the resolver requires authentication', async () => {
+    const db = join(mkdtempSync(join(tmpdir(), 'ol-')), 'lectures.db');
+    const store = new SqliteStore(db);
+    await store.open();
+    await new SqliteJobRepository(store).save({
+      id: 'tt:fvs:574-1:22414',
+      enabled: true,
+      source: 'timetable',
+      origin: {
+        faculty: 'fvs',
+        group: '574-1',
+        discipline: 'РВП',
+        sdoCourseId: '22414',
+      },
+      schedule: {
+        type: 'imported',
+        timezone: 'Asia/Tomsk',
+        occurrences: [
+          { date: '2026-09-30', joinAt: '13:15', leaveAt: '14:50' },
+        ],
+      },
+      target: { type: 'search', courseId: '22414', courseName: 'РВП' },
+      browser: { headless: false },
+    });
+    store.close();
+
+    const routes: Record<string, string> = {
+      '/': home,
+      '/faculties/fvs/groups/574-1': '<a href="?week_id=839"></a>',
+      '/ocenka/api/v1/lessons/1/course_links':
+        '[{"url":"https://sdo.tusur.ru/auth/edu?id=22414","anchor":"a","group":"574-1"}]',
+      '/faculties/fvs/groups/574-1?week_id=839': week,
+    };
+    const result = await executeCli(['import', '--db', db], {
+      createFetcher: async () => ({
+        get: async (url) => {
+          const u = new URL(url);
+          return routes[u.pathname + u.search] ?? routes[u.pathname] ?? '';
+        },
+      }),
+      createResolver: async () => ({
+        resolveOnlineLecture: async () => ({ status: 'auth_required' }),
+      }),
+    });
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toBe(
+      'Authentication required for SDO; no changes applied\n',
+    );
+
+    const reopened = new SqliteStore(db);
+    await reopened.open();
+    const jobs = await new SqliteJobRepository(reopened).listAll();
+    expect(jobs.map((j) => j.id)).toEqual(['tt:fvs:574-1:22414']);
+    reopened.close();
+  });
+
+  it('does not prune saved timetable jobs on a partial import', async () => {
+    const db = join(mkdtempSync(join(tmpdir(), 'ol-')), 'lectures.db');
+    const store = new SqliteStore(db);
+    await store.open();
+    await new SqliteJobRepository(store).save({
+      id: 'tt:fvs:574-1:99999',
+      enabled: true,
+      source: 'timetable',
+      origin: {
+        faculty: 'fvs',
+        group: '574-1',
+        discipline: 'Старая',
+        sdoCourseId: '99999',
+      },
+      schedule: {
+        type: 'imported',
+        timezone: 'Asia/Tomsk',
+        occurrences: [
+          { date: '2026-09-30', joinAt: '13:15', leaveAt: '14:50' },
+        ],
+      },
+      target: { type: 'search', courseId: '99999', courseName: 'Старая' },
+      browser: { headless: false },
+    });
+    store.close();
+
+    const routes: Record<string, string> = {
+      '/': home,
+      '/faculties/fvs/groups/574-1': '<a href="?week_id=839"></a>',
+      '/ocenka/api/v1/lessons/1/course_links':
+        '[{"url":"https://sdo.tusur.ru/auth/edu?id=22414","anchor":"a","group":"574-1"}]',
+      '/faculties/fvs/groups/574-1?week_id=839': week,
+    };
+    const result = await executeCli(['import', '--db', db], {
+      createFetcher: async () => ({
+        get: async (url) => {
+          const u = new URL(url);
+          return routes[u.pathname + u.search] ?? routes[u.pathname] ?? '';
+        },
+      }),
+      createResolver: async () => ({
+        resolveOnlineLecture: async () => ({
+          status: 'ambiguous',
+          candidates: [],
+        }),
+      }),
+    });
+    expect(result.exitCode).toBe(0);
+
+    const reopened = new SqliteStore(db);
+    await reopened.open();
+    const jobs = await new SqliteJobRepository(reopened).listAll();
+    expect(jobs.map((j) => j.id)).toEqual(['tt:fvs:574-1:99999']);
+    reopened.close();
+  });
 });
