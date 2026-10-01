@@ -34,7 +34,8 @@ export function parseCourseLinks(json: string): CourseLink[] {
 
 export function extractSdoCourseId(link: CourseLink): string | undefined {
   try {
-    return new URL(link.url).searchParams.get('id') ?? undefined;
+    const id = new URL(link.url).searchParams.get('id');
+    return id === null || id === '' ? undefined : id;
   } catch {
     return undefined;
   }

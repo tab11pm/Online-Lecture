@@ -25,7 +25,7 @@ export function mergeImportedJobs(
   };
 
   const manualJobs = existing.filter((job) => job.source !== 'timetable');
-  const onceKeys = collectOncePairKeys(manualJobs);
+  const oncePairs = collectOncePairs(manualJobs);
   const weeklyPairs = collectWeeklyPairs(manualJobs);
 
   const importedById = new Map(imported.map((job) => [job.id, job]));
@@ -65,8 +65,9 @@ export function mergeImportedJobs(
         job,
         importedJob,
         disciplineOf(importedJob),
-        onceKeys,
+        oncePairs,
         weeklyPairs,
+        prune,
         summary,
       ),
     );
@@ -78,7 +79,7 @@ export function mergeImportedJobs(
     }
 
     const occurrences = occurrencesOf(job).map((occurrence) =>
-      applyManualDedup(occurrence, disciplineOf(job), onceKeys, weeklyPairs),
+      applyManualDedup(occurrence, disciplineOf(job), oncePairs, weeklyPairs),
     );
 
     const merged = structuredClone(job);
@@ -103,23 +104,38 @@ function disciplineOf(job: Job): string {
   return job.origin?.discipline ?? courseName ?? '';
 }
 
+interface OncePair {
+  date: string;
+  joinAt: string;
+  discipline: string;
+}
+
 interface WeeklyPair {
   days: Weekday[];
   joinAt: string;
   discipline: string;
 }
 
-function collectOncePairKeys(jobs: Job[]): Set<string> {
-  const keys = new Set<string>();
+function disciplineMatches(
+  pairDiscipline: string,
+  discipline: string,
+): boolean {
+  return pairDiscipline === '' || pairDiscipline === discipline;
+}
+
+function collectOncePairs(jobs: Job[]): OncePair[] {
+  const pairs: OncePair[] = [];
   for (const job of jobs) {
     if (job.schedule.type !== 'once') {
       continue;
     }
-    keys.add(
-      `${job.schedule.date}|${job.schedule.joinAt}|${disciplineOf(job)}`,
-    );
+    pairs.push({
+      date: job.schedule.date,
+      joinAt: job.schedule.joinAt,
+      discipline: disciplineOf(job),
+    });
   }
-  return keys;
+  return pairs;
 }
 
 function collectWeeklyPairs(jobs: Job[]): WeeklyPair[] {
@@ -158,12 +174,18 @@ function weekdayOf(date: string): Weekday | undefined {
 function applyManualDedup(
   occurrence: ImportedOccurrence,
   discipline: string,
-  onceKeys: Set<string>,
+  oncePairs: OncePair[],
   weeklyPairs: WeeklyPair[],
 ): ImportedOccurrence {
   const clone = { ...occurrence };
 
-  if (onceKeys.has(`${occurrence.date}|${occurrence.joinAt}|${discipline}`)) {
+  const onceMatch = oncePairs.some(
+    (pair) =>
+      pair.date === occurrence.date &&
+      pair.joinAt === occurrence.joinAt &&
+      disciplineMatches(pair.discipline, discipline),
+  );
+  if (onceMatch) {
     return { ...clone, suppressed: true };
   }
 
@@ -175,7 +197,7 @@ function applyManualDedup(
   for (const pair of weeklyPairs) {
     if (
       pair.joinAt === occurrence.joinAt &&
-      pair.discipline === discipline &&
+      disciplineMatches(pair.discipline, discipline) &&
       pair.days.includes(weekday)
     ) {
       return { ...clone, suppressed: true };
@@ -189,8 +211,9 @@ function mergeMatchedJob(
   existingJob: Job,
   importedJob: Job,
   discipline: string,
-  onceKeys: Set<string>,
+  oncePairs: OncePair[],
   weeklyPairs: WeeklyPair[],
+  prune: boolean,
   summary: MergeSummary,
 ): Job {
   const existingOccurrences = occurrencesOf(existingJob);
@@ -210,6 +233,7 @@ function mergeMatchedJob(
 
   for (const occurrence of existingOccurrences) {
     if (
+      prune &&
       !importedDates.has(occurrence.date) &&
       !occurrence.edited &&
       !occurrence.suppressed
@@ -225,7 +249,7 @@ function mergeMatchedJob(
     const deduped = applyManualDedup(
       importedOccurrence,
       discipline,
-      onceKeys,
+      oncePairs,
       weeklyPairs,
     );
 
@@ -248,10 +272,13 @@ function mergeMatchedJob(
       summary.preservedEdits += 1;
     } else if (prior.suppressed) {
       occurrences.push({ ...prior });
+    } else if (!prune) {
+      occurrences.push({ ...prior });
     }
   }
 
-  const merged = structuredClone(existingJob);
+  const merged = structuredClone(importedJob);
+  merged.enabled = existingJob.enabled;
   if (merged.schedule.type === 'imported') {
     merged.schedule.occurrences = occurrences;
   }

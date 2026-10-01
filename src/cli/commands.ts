@@ -14,6 +14,7 @@ import { SqliteStore } from '../persistence/sqlite-store.js';
 import { mergeImportedJobs } from '../timetable/import-merger.js';
 import type { HttpFetcher } from '../timetable/http-fetcher.js';
 import { groupOnlineDisciplines } from '../timetable/online-selector.js';
+import { createPlaywrightFetcher } from '../timetable/playwright-fetcher.js';
 import { TimetableClient } from '../timetable/timetable-client.js';
 import { buildImportedJobs } from '../timetable/timetable-importer.js';
 
@@ -78,8 +79,10 @@ export async function executeCli(
     const groupOption = optionValue(argumentsList, '--group');
 
     let store: SqliteStore | undefined;
+    let fetcher: HttpFetcher | undefined;
+    let resolver: OnlineLectureResolver | undefined;
     try {
-      const fetcher = await (dependencies.createFetcher ?? defaultFetcher)(
+      fetcher = await (dependencies.createFetcher ?? defaultFetcher)(
         authStatePath,
       );
       const client = new TimetableClient({
@@ -102,7 +105,7 @@ export async function executeCli(
         await groupOnlineDisciplines(lessons, (lessonId) =>
           client.fetchCourseLinks(lessonId),
         );
-      const resolver = await (dependencies.createResolver ?? defaultResolver)();
+      resolver = await (dependencies.createResolver ?? defaultResolver)();
       const built = await buildImportedJobs({
         faculty,
         group,
@@ -148,6 +151,8 @@ export async function executeCli(
       return { exitCode: 1, output: `Import failed: ${message}\n` };
     } finally {
       store?.close();
+      await closeResource(fetcher);
+      await closeResource(resolver);
     }
   }
 
@@ -318,8 +323,25 @@ const noOpRunner: LectureRunner = {
   stop: async () => undefined,
 };
 
-async function defaultFetcher(): Promise<HttpFetcher> {
-  throw new Error('Authenticated fetcher is not configured');
+async function closeResource(resource: unknown): Promise<void> {
+  if (
+    resource !== null &&
+    typeof resource === 'object' &&
+    typeof (resource as { close?: unknown }).close === 'function'
+  ) {
+    try {
+      await (resource as { close(): Promise<void> }).close();
+    } catch {
+      // Closing best-effort resources must not mask the command result.
+    }
+  }
+}
+
+async function defaultFetcher(authStatePath?: string): Promise<HttpFetcher> {
+  if (authStatePath === undefined) {
+    throw new Error('Missing --auth-state <path>');
+  }
+  return createPlaywrightFetcher({ authStatePath });
 }
 
 async function defaultResolver(): Promise<OnlineLectureResolver> {

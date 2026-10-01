@@ -30,6 +30,16 @@ describe('course mapper', () => {
     ).toBeUndefined();
   });
 
+  it('returns undefined for an empty id', () => {
+    expect(
+      extractSdoCourseId({
+        url: 'https://sdo.tusur.ru/auth/edu?id=',
+        anchor: '',
+        group: '',
+      }),
+    ).toBeUndefined();
+  });
+
   it('builds a Moodle course url', () => {
     expect(buildCourseUrl('22413')).toBe(
       'https://sdo.tusur.ru/course/view.php?id=22413',

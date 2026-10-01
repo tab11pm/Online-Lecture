@@ -201,6 +201,65 @@ describe('cli import', () => {
     reopened.close();
   });
 
+  it('fails safely when no auth state is provided and no fetcher is injected', async () => {
+    const db = join(mkdtempSync(join(tmpdir(), 'ol-')), 'lectures.db');
+    const result = await executeCli(['import', '--db', db]);
+    expect(result.exitCode).toBe(1);
+    expect(result.output).toContain('Missing --auth-state');
+  });
+
+  it('aborts without writing when a week page has no schedule table', async () => {
+    const db = join(mkdtempSync(join(tmpdir(), 'ol-')), 'lectures.db');
+    const store = new SqliteStore(db);
+    await store.open();
+    await new SqliteJobRepository(store).save({
+      id: 'tt:fvs:574-1:22414',
+      enabled: true,
+      source: 'timetable',
+      origin: {
+        faculty: 'fvs',
+        group: '574-1',
+        discipline: 'РВП',
+        sdoCourseId: '22414',
+      },
+      schedule: {
+        type: 'imported',
+        timezone: 'Asia/Tomsk',
+        occurrences: [
+          { date: '2026-09-30', joinAt: '13:15', leaveAt: '14:50' },
+        ],
+      },
+      target: { type: 'search', courseId: '22414', courseName: 'РВП' },
+      browser: { headless: false },
+    });
+    store.close();
+
+    const routes: Record<string, string> = {
+      '/': home,
+      '/faculties/fvs/groups/574-1': '<a href="?week_id=839"></a>',
+      '/faculties/fvs/groups/574-1?week_id=839':
+        '<html><body><h1>Ошибка</h1></body></html>',
+    };
+    const result = await executeCli(['import', '--db', db], {
+      createFetcher: async () => ({
+        get: async (url) => {
+          const u = new URL(url);
+          return routes[u.pathname + u.search] ?? routes[u.pathname] ?? '';
+        },
+      }),
+      createResolver: async () => ({
+        resolveOnlineLecture: async () => ({ status: 'not_found' }),
+      }),
+    });
+    expect(result.exitCode).toBe(1);
+
+    const reopened = new SqliteStore(db);
+    await reopened.open();
+    const jobs = await new SqliteJobRepository(reopened).listAll();
+    expect(jobs.map((j) => j.id)).toEqual(['tt:fvs:574-1:22414']);
+    reopened.close();
+  });
+
   it('does not prune saved timetable jobs when course mapping is incomplete', async () => {
     const db = join(mkdtempSync(join(tmpdir(), 'ol-')), 'lectures.db');
     const store = new SqliteStore(db);
