@@ -13,8 +13,8 @@ schedule:
   timezone: Asia/Krasnoyarsk
 target:
   type: search
-  course: "Математика"
-  lecture: "Онлайн-лекция"
+  courseId: "Математика"
+  lectureQuery: "Онлайн-лекция"
 browser:
   headless: false
 `;
@@ -24,19 +24,19 @@ describe('parseJobConfig', () => {
     expect(parseJobConfig(weeklyConfig)).toMatchObject({
       id: 'math-monday',
       schedule: { type: 'weekly', days: ['mon'] },
-      target: { type: 'search', course: 'Математика' },
+      target: { type: 'search', courseId: 'Математика' },
     });
   });
 
-  it('rejects a target with conflicting url and search fields', () => {
+  it('rejects a target with conflicting direct and search fields', () => {
     expect(() =>
       parseJobConfig(
         weeklyConfig.replace(
           'type: search',
-          'type: url\n  url: https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
+          'type: direct\n  activityUrl: https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
         ),
       ),
-    ).toThrow('target.type=url cannot include course or lecture');
+    ).toThrow('target.type=direct cannot include courseId, courseName, or lectureQuery');
   });
 
   it.each([
@@ -55,11 +55,11 @@ schedule:
   leaveAt: "11:35"
   timezone: Asia/Krasnoyarsk
 target:
-  type: url
-  url: ${url}
+  type: direct
+  activityUrl: ${url}
 browser:
   headless: false
 `),
-    ).toThrow('target.url must be an HTTPS Moodle BigBlueButton activity URL');
+    ).toThrow('target.activityUrl must be an HTTPS Moodle BigBlueButton activity URL');
   });
 });

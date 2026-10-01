@@ -20,7 +20,7 @@ const job: Job = {
     leaveAt: '11:35',
     timezone: 'Asia/Krasnoyarsk',
   },
-  target: { type: 'search', course: 'Математика' },
+  target: { type: 'search', courseId: 'Математика' },
   browser: { headless: false },
 };
 

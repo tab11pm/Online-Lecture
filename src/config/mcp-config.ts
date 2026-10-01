@@ -30,7 +30,7 @@ export function validateMcpConfig(config: McpConfig): string[] {
     errors.push('serverPath is required and must not be empty');
   }
 
-  if (config.connectionTimeout <= 0) {
+  if ((config.connectionTimeout ?? 0) <= 0) {
     errors.push('connectionTimeout must be greater than 0');
   }
 

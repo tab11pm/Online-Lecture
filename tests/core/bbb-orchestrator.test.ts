@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { BbbOrchestrator, BbbTarget, BbbJoinResult } from '../../src/core/bbb-orchestrator.js';
 import { SdoMcpClient } from '../../src/core/mcp-client.js';
 import { PlaywrightBbbSessionManager } from '../../src/core/bbb-session.js';
-import type { BbbSession } from '../../src/core/bbb-session.js';
+import type { BbbSession } from '../../src/core/types.js';
 
 /**
  * Mock implementations for testing
@@ -39,22 +39,16 @@ class MockPlaywrightBbbSessionManager {
   async startSession(url: string) {
     const session: BbbSession = {
       page: {} as any,
-      context: {} as any,
-      activityUrl: url,
+      url,
       startedAt: new Date(),
-      status: 'starting',
+      status: 'started',
     };
     this.sessions.set(url, session);
     return session;
   }
 
-  async selectAllGroups(session: BbbSession) {
-    session.status = 'joining';
-  }
-
-  async joinSession(session: BbbSession) {
+  async joinAsListener(session: BbbSession) {
     session.status = 'joined';
-    session.meetingUrl = 'https://bbb.example.com/b/meeting123';
   }
 
   async monitorSession() {
@@ -174,12 +168,12 @@ describe('BbbOrchestrator', () => {
       const result = await orchestrator.joinBbbSession(target);
 
       expect(result.session).toBeDefined();
-      expect(result.session?.activityUrl).toBe(target.activityUrl);
+      expect(result.session?.url).toBe(target.activityUrl);
       expect(result.session?.status).toBe('joined');
     });
 
-    it('should handle group selection for lecture activities', async () => {
-      const selectGroupsSpy = vi.spyOn(bbbSessionManager, 'selectAllGroups');
+    it('should call joinAsListener when joining a session', async () => {
+      const joinSpy = vi.spyOn(bbbSessionManager, 'joinAsListener');
 
       const target: BbbTarget = {
         type: 'direct',
@@ -188,10 +182,7 @@ describe('BbbOrchestrator', () => {
 
       await orchestrator.joinBbbSession(target);
 
-      // Note: selectAllGroups will be called if HTML indicates lecture
-      // Mock HTML doesn't include group indicators, so this may not be called
-      // but the method is available for subclasses/real use
-      expect(selectGroupsSpy).toBeDefined();
+      expect(joinSpy).toHaveBeenCalled();
     });
   });
 
@@ -318,7 +309,7 @@ describe('BbbOrchestrator', () => {
       if (!result.success) {
         expect(result.error).toBeDefined();
         expect(typeof result.error).toBe('string');
-        expect(result.error.length).toBeGreaterThan(0);
+        expect(result.error!.length).toBeGreaterThan(0);
       }
     });
   });
@@ -372,7 +363,7 @@ describe('BbbOrchestrator', () => {
       if (joinResult.session) {
         // Monitor
         const monitorSpy = vi.spyOn(orchestrator, 'monitorSession');
-        await orchestrator.monitorSession(joinResult.session, 60000);
+        await orchestrator.monitorSession(joinResult.session);
         expect(monitorSpy).toHaveBeenCalled();
 
         // Leave

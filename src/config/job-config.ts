@@ -1,47 +1,48 @@
 import { parse } from 'yaml';
 import { z } from 'zod';
 
-import type { Job } from '../core/types.js';
+import type { Job, LectureTarget } from '../core/types.js';
 
 const time = z.string().regex(/^\d{2}:\d{2}$/, 'time must use HH:MM');
 const target = z
   .object({
-    type: z.enum(['search', 'url']),
-    course: z.string().min(1).optional(),
-    lecture: z.string().min(1).optional(),
-    url: z.string().url().optional(),
+    type: z.enum(['search', 'direct']),
+    courseId: z.string().min(1).optional(),
+    courseName: z.string().min(1).optional(),
+    lectureQuery: z.string().min(1).optional(),
+    activityUrl: z.string().url().optional(),
   })
   .superRefine((value, context) => {
-    if (value.type === 'search' && value.course === undefined) {
+    if (value.type === 'search' && !value.courseId && !value.courseName) {
       context.addIssue({
         code: 'custom',
-        message: 'target.type=search requires course',
+        message: 'target.type=search requires courseId or courseName',
       });
     }
     if (
-      value.type === 'url' &&
-      (value.course !== undefined || value.lecture !== undefined)
+      value.type === 'direct' &&
+      (value.courseId !== undefined || value.courseName !== undefined || value.lectureQuery !== undefined)
     ) {
       context.addIssue({
         code: 'custom',
-        message: 'target.type=url cannot include course or lecture',
+        message: 'target.type=direct cannot include courseId, courseName, or lectureQuery',
       });
     }
-    if (value.type === 'url' && value.url === undefined) {
+    if (value.type === 'direct' && value.activityUrl === undefined) {
       context.addIssue({
         code: 'custom',
-        message: 'target.type=url requires url',
+        message: 'target.type=direct requires activityUrl',
       });
     }
     if (
-      value.type === 'url' &&
-      value.url !== undefined &&
-      !isMoodleBbbUrl(value.url)
+      value.type === 'direct' &&
+      value.activityUrl !== undefined &&
+      !isMoodleBbbUrl(value.activityUrl)
     ) {
       context.addIssue({
         code: 'custom',
         message:
-          'target.url must be an HTTPS Moodle BigBlueButton activity URL',
+          'target.activityUrl must be an HTTPS Moodle BigBlueButton activity URL',
       });
     }
   });
@@ -81,11 +82,15 @@ export function parseJobConfig(yaml: string): Job {
 }
 
 function isMoodleBbbUrl(value: string): boolean {
-  const url = new URL(value);
-  return (
-    url.protocol === 'https:' &&
-    url.hostname === 'sdo.tusur.ru' &&
-    url.pathname === '/mod/bigbluebuttonbn/view.php' &&
-    url.searchParams.has('id')
-  );
+  try {
+    const url = new URL(value);
+    return (
+      url.protocol === 'https:' &&
+      url.hostname === 'sdo.tusur.ru' &&
+      url.pathname === '/mod/bigbluebuttonbn/view.php' &&
+      url.searchParams.has('id')
+    );
+  } catch {
+    return false;
+  }
 }

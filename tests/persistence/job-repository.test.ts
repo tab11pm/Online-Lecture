@@ -37,7 +37,7 @@ describe('SqliteJobRepository', () => {
       },
       target: {
         type: 'direct',
-        url: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
+        activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
       },
       browser: { headless: false },
     };
@@ -67,7 +67,7 @@ describe('SqliteJobRepository', () => {
         leaveAt: '11:35',
         timezone: 'Asia/Krasnoyarsk',
       },
-      target: { type: 'search', course: 'Математика' },
+      target: { type: 'search', courseId: 'Математика' },
       browser: { headless: false },
     });
 

@@ -1,5 +1,6 @@
 import { SdoMcpClient } from './mcp-client.js';
-import { PlaywrightBbbSessionManager, BbbSession } from './bbb-session.js';
+import { PlaywrightBbbSessionManager } from './bbb-session.js';
+import type { BbbSession } from './types.js';
 import { BbbActivityParser } from './bbb-activity-parser.js';
 import type { BbbActivity, Course } from './types.js';
 
@@ -76,14 +77,9 @@ export class BbbOrchestrator {
         skipVideoSetup: true,
       });
 
-      // Handle group selection if needed
-      if (parser.requiresGroupSelection()) {
-        await this.bbbSessionManager.selectAllGroups(session);
-      }
-
       // Join meeting
       const joinedAt = new Date();
-      await this.bbbSessionManager.joinSession(session);
+      await this.bbbSessionManager.joinAsListener(session);
 
       return {
         success: true,
@@ -107,8 +103,8 @@ export class BbbOrchestrator {
   /**
    * Monitor a session and wait for it to end
    */
-  async monitorSession(session: BbbSession, timeoutMs?: number): Promise<void> {
-    await this.bbbSessionManager.monitorSession(session, timeoutMs);
+  async monitorSession(session: BbbSession): Promise<void> {
+    await this.bbbSessionManager.monitorSession(session);
   }
 
   /**

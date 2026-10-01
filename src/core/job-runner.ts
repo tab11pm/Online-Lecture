@@ -132,7 +132,7 @@ export class JobRunner {
         dbRun.status = 'joining';
         await this.runRepo.update(dbRun);
 
-        await this.bbbManager.joinSession(session);
+        await this.bbbManager.joinAsListener(session);
 
         // Monitor session
         result.status = 'connected';
@@ -142,7 +142,7 @@ export class JobRunner {
         // Monitor for up to 4 hours or until session ends
         const maxMonitorTime = 4 * 60 * 60 * 1000; // 4 hours max
         try {
-          await this.bbbManager.monitorSession(session, maxMonitorTime);
+          await this.bbbManager.monitorSession(session);
           result.completionReason = 'meeting_ended';
         } catch (error) {
           // Timeout or monitoring error
