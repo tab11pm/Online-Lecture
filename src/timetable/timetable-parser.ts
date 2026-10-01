@@ -105,7 +105,14 @@ export function parseLessons(
   const { document } = new JSDOM(html).window;
 
   const table = Array.from(document.querySelectorAll('table')).find(
-    (candidate) => candidate.querySelector('.training'),
+    (candidate) => {
+      if (candidate.querySelector('.training')) {
+        return true;
+      }
+      return Array.from(candidate.querySelectorAll('td')).some(
+        (cell) => buildDate(cell.textContent ?? '', options.year) !== undefined,
+      );
+    },
   );
   if (!table) {
     throw new ScheduleParseError();

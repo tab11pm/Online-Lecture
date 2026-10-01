@@ -57,6 +57,12 @@ describe('timetable parser', () => {
     ).toThrow(ScheduleParseError);
   });
 
+  it('returns an empty list for a week with day headers but no lessons', () => {
+    const html =
+      '<table><tbody><tr><td>пн, 28 сент.</td><td><span>08:50</span><span>10:25</span></td></tr></tbody></table>';
+    expect(parseLessons(html, { year: 2026 })).toEqual([]);
+  });
+
   it('returns an empty list when the schedule table is present but empty', () => {
     expect(
       parseLessons(
