@@ -1,5 +1,14 @@
 # Online Lecture — roadmap
 
+### Phase 1: Автоимпорт расписания ТУСУР
+
+**Goal:** По логину и паролю автоматически находить группу на `timetable.tusur.ru`, собирать онлайн-пары (ЭИОС), сопоставлять их с курсами SDO и создавать/обновлять задания, не изменяя ручные пары.
+**Requirements:** SSO-вход и локальное хранение пароля; клиент и парсер timetable; детект ЭИОС; маппинг `course_links`; резолв BBB через MCP; модель `imported` с `edited`/`suppressed`; слияние при обновлении; ручные пары «разово»/«каждую неделю» и «Перенести»; CLI `import`.
+**Plans:** 1 plan
+
+Plans:
+- [x] timetable-auto-import — ядро импорта, слияние и CLI (Tasks 1–10)
+
 ## Backlog
 
 ### Phase 999.1: Реальный lifecycle запуска лекции (BACKLOG)
