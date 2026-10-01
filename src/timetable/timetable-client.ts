@@ -76,8 +76,9 @@ export class TimetableClient {
     for (const weekId of weekIds) {
       const lessons = await this.fetchLessons(faculty, group, weekId);
       for (const lesson of lessons) {
-        if (lesson.online && !online.has(lesson.lessonId)) {
-          online.set(lesson.lessonId, lesson);
+        const key = `${lesson.lessonId}::${lesson.date}`;
+        if (lesson.online && !online.has(key)) {
+          online.set(key, lesson);
         }
       }
     }
