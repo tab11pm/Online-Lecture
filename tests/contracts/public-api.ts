@@ -17,8 +17,8 @@ const job: Job = {
   },
   target: {
     type: 'search',
-    course: 'Математика',
-    lecture: 'Онлайн-лекция',
+    courseId: 'Математика',
+    lectureQuery: 'Онлайн-лекция',
   },
   browser: { headless: false },
 };

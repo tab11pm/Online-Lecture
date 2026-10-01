@@ -77,7 +77,9 @@ describe('SdoMcpClient types', () => {
     const activity: BbbActivity = {
       id: 'id',
       name: 'name',
-      courseId: 'courseId',
+      courseUrl: 'https://sdo.tusur.ru/course/view.php?id=1',
+      activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+      type: 'lecture',
     };
     expect(activity.id).toBe('id');
 

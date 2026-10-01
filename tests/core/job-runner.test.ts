@@ -32,7 +32,7 @@ describe('JobRunner', () => {
         url: 'https://bbb2.tusur.ru/test',
         startedAt: new Date(),
       }),
-      joinSession: vi.fn().mockResolvedValue(undefined),
+      joinAsListener: vi.fn().mockResolvedValue(undefined),
       monitorSession: vi.fn().mockRejectedValue(new Error('Session monitoring timeout')),
       leaveSession: vi.fn().mockResolvedValue(undefined),
     };
@@ -98,10 +98,10 @@ describe('JobRunner', () => {
       );
     });
 
-    it('should call joinSession', async () => {
+    it('should call joinAsListener', async () => {
       await runner.runJob('job-1', 'occ-1');
 
-      expect(mockBbbManager.joinSession).toHaveBeenCalled();
+      expect(mockBbbManager.joinAsListener).toHaveBeenCalled();
     });
 
     it('should call leaveSession on completion', async () => {

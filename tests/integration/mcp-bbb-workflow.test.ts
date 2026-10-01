@@ -28,7 +28,9 @@ describe('Integration: MCP → BBB Workflow', () => {
       findBbbActivity: vi.fn().mockResolvedValue({
         id: 'activity-1',
         name: 'Lecture 1',
-        courseId: 'course-1',
+        courseUrl: 'https://sdo.tusur.ru/course/view.php?id=course-1',
+        activityUrl: 'https://bbb2.tusur.ru/b/lec-abc123xyz',
+        type: 'lecture',
       }),
       getBbbUrl: vi.fn().mockResolvedValue({
         url: 'https://bbb2.tusur.ru/b/lec-abc123xyz',
@@ -65,7 +67,7 @@ describe('Integration: MCP → BBB Workflow', () => {
           leaveAt: '15:00',
           timezone: 'UTC',
         },
-        target: { type: 'url', url: 'https://bbb2.tusur.ru/b/lec-abc123xyz' },
+        target: { type: 'direct', activityUrl: 'https://bbb2.tusur.ru/b/lec-abc123xyz' },
         browser: { headless: true },
       }),
       save: vi.fn().mockResolvedValue(undefined),
