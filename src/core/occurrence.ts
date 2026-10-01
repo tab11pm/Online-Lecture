@@ -39,17 +39,30 @@ export function findActiveOccurrence(
     return undefined;
   }
 
+  let times: { joinAt: string; leaveAt: string };
+
   if (schedule.type === 'weekly') {
     const weekday = weekdayByNumber[localNow.weekday - 1];
     if (weekday === undefined || !schedule.days.includes(weekday)) {
       return undefined;
     }
+    times = { joinAt: schedule.joinAt, leaveAt: schedule.leaveAt };
+  } else if (schedule.type === 'imported') {
+    const occurrence = schedule.occurrences.find(
+      (entry) => entry.date === localDate && !entry.suppressed,
+    );
+    if (occurrence === undefined) {
+      return undefined;
+    }
+    times = { joinAt: occurrence.joinAt, leaveAt: occurrence.leaveAt };
+  } else {
+    times = { joinAt: schedule.joinAt, leaveAt: schedule.leaveAt };
   }
 
-  const joinAt = DateTime.fromISO(`${localDate}T${schedule.joinAt}`, {
+  const joinAt = DateTime.fromISO(`${localDate}T${times.joinAt}`, {
     zone: schedule.timezone,
   });
-  const leaveAt = DateTime.fromISO(`${localDate}T${schedule.leaveAt}`, {
+  const leaveAt = DateTime.fromISO(`${localDate}T${times.leaveAt}`, {
     zone: schedule.timezone,
   });
 

@@ -1,5 +1,23 @@
 export type Weekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 
+export type JobSource = 'manual' | 'timetable';
+
+export interface JobOrigin {
+  faculty: string;
+  group: string;
+  discipline: string;
+  sdoCourseId: string;
+}
+
+export interface ImportedOccurrence {
+  date: string; // YYYY-MM-DD
+  joinAt: string; // HH:MM
+  leaveAt: string; // HH:MM
+  room?: string;
+  edited?: boolean;
+  suppressed?: boolean;
+}
+
 export type Schedule =
   | {
       type: 'once';
@@ -14,6 +32,11 @@ export type Schedule =
       joinAt: string;
       leaveAt: string;
       timezone: string;
+    }
+  | {
+      type: 'imported';
+      timezone: string;
+      occurrences: ImportedOccurrence[];
     };
 
 export type LectureTarget =
@@ -31,6 +54,8 @@ export type LectureTarget =
 export interface Job {
   id: string;
   enabled: boolean;
+  source?: JobSource;
+  origin?: JobOrigin;
   schedule: Schedule;
   target: LectureTarget;
   browser: {
@@ -114,6 +139,28 @@ export interface BbbActivity {
   courseUrl: string;
   activityUrl: string;
   type: 'lecture' | 'practical';
+}
+
+export interface OnlineLectureCandidate {
+  id: string;
+  name: string;
+  courseUrl: string;
+  activityUrl: string;
+  type: 'lecture' | 'practical';
+}
+
+export type OnlineLectureResolution =
+  | { status: 'resolved'; course: Course; module: OnlineLectureCandidate }
+  | { status: 'ambiguous'; candidates: OnlineLectureCandidate[] }
+  | { status: 'not_found' }
+  | { status: 'auth_required' };
+
+export interface OnlineLectureResolver {
+  resolveOnlineLecture(input: {
+    courseUrl?: string;
+    courseQuery?: string;
+    lectureQuery?: string;
+  }): Promise<OnlineLectureResolution>;
 }
 
 export interface BbbUrl {
