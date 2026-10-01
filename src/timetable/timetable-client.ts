@@ -29,8 +29,7 @@ export class TimetableClient {
   }
 
   private async get(path: string): Promise<string> {
-    const url = new URL(path, this.baseUrl);
-    return this.fetcher.get(`${url.pathname}${url.search}`);
+    return this.fetcher.get(new URL(path, this.baseUrl).toString());
   }
 
   async discoverGroup(): Promise<{ faculty: string; group: string }> {
