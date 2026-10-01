@@ -1,0 +1,7 @@
+schema: spec-driven
+created: 2026-10-02
+goal: Автоматически находить группу на timetable.tusur.ru, импортировать онлайн-пары
+  (ЭИОС) и сопоставлять их с курсами SDO, не изменяя ручные пары.
+depends_on:
+  - build-core-cli
+  - real-run-lifecycle
