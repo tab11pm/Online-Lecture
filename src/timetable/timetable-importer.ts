@@ -73,5 +73,41 @@ export async function buildImportedJobs(input: {
     });
   }
 
-  return { jobs, unresolved, ambiguous, authRequired };
+  return {
+    jobs: mergeDuplicateJobs(jobs),
+    unresolved,
+    ambiguous,
+    authRequired,
+  };
+}
+
+function mergeDuplicateJobs(jobs: Job[]): Job[] {
+  const byId = new Map<string, Job>();
+  const order: string[] = [];
+
+  for (const job of jobs) {
+    const existing = byId.get(job.id);
+    if (existing === undefined) {
+      byId.set(job.id, job);
+      order.push(job.id);
+      continue;
+    }
+
+    if (
+      existing.schedule.type === 'imported' &&
+      job.schedule.type === 'imported'
+    ) {
+      const dates = new Set(
+        existing.schedule.occurrences.map((occurrence) => occurrence.date),
+      );
+      for (const occurrence of job.schedule.occurrences) {
+        if (!dates.has(occurrence.date)) {
+          existing.schedule.occurrences.push(occurrence);
+          dates.add(occurrence.date);
+        }
+      }
+    }
+  }
+
+  return order.map((id) => byId.get(id)!);
 }

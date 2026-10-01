@@ -5,6 +5,7 @@ import {
   parseFacultyAndGroup,
   parseLessons,
   parseWeekIds,
+  ScheduleParseError,
 } from '../../src/timetable/timetable-parser.js';
 
 const home = readFileSync('tests/fixtures/timetable/home.html', 'utf8');
@@ -46,5 +47,22 @@ describe('timetable parser', () => {
       date: '2026-09-30',
       online: true,
     });
+  });
+
+  it('throws when the schedule table is absent', () => {
+    expect(() =>
+      parseLessons('<html><body><h1>Ошибка</h1></body></html>', {
+        year: 2026,
+      }),
+    ).toThrow(ScheduleParseError);
+  });
+
+  it('returns an empty list when the schedule table is present but empty', () => {
+    expect(
+      parseLessons(
+        '<table><tbody><tr><td>заголовок</td><td><div class="training"></div></td></tr></tbody></table>',
+        { year: 2026 },
+      ),
+    ).toEqual([]);
   });
 });

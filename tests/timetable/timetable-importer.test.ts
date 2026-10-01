@@ -82,6 +82,49 @@ describe('buildImportedJobs', () => {
     });
   });
 
+  it('merges disciplines that share an SDO course id into one job', async () => {
+    const second = {
+      discipline: 'РМП2 (лабораторная)',
+      sdoCourseId: '22413',
+      lessons: [
+        {
+          lessonId: '3',
+          discipline: 'РМП2 (лабораторная)',
+          kind: 'Лабораторная работа',
+          date: '2026-10-14',
+          start: '10:40',
+          end: '12:15',
+          online: true,
+        },
+      ],
+    };
+    const result = await buildImportedJobs({
+      faculty: 'fvs',
+      group: '574-1',
+      disciplines: [discipline, second],
+      resolver: resolver({
+        status: 'resolved',
+        course: { id: '22413', name: 'РМП2' },
+        module: {
+          id: 'm1',
+          name: 'Онлайн-лекция',
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+          activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+          type: 'lecture',
+        },
+      }),
+    });
+    expect(result.jobs).toHaveLength(1);
+    expect(result.jobs[0]!.id).toBe('tt:fvs:574-1:22413');
+    expect(result.jobs[0]!.schedule).toMatchObject({
+      occurrences: [
+        { date: '2026-09-30' },
+        { date: '2026-10-07' },
+        { date: '2026-10-14' },
+      ],
+    });
+  });
+
   it('reports not_found and ambiguous disciplines separately', async () => {
     const notFound = await buildImportedJobs({
       faculty: 'fvs',

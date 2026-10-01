@@ -198,6 +198,90 @@ describe('mergeImportedJobs', () => {
     expect(occurrencesOf(importedJob)[0]!.suppressed).toBe(true);
   });
 
+  it('keeps an existing occurrence absent from the import when pruning is disabled', () => {
+    const existing = [
+      base({
+        schedule: {
+          type: 'imported',
+          timezone: 'Asia/Tomsk',
+          occurrences: [occ('2026-09-30')],
+        },
+      }),
+    ];
+    const imported = [
+      base({
+        schedule: {
+          type: 'imported',
+          timezone: 'Asia/Tomsk',
+          occurrences: [occ('2026-10-07')],
+        },
+      }),
+    ];
+    const { jobs, summary } = mergeImportedJobs(existing, imported, {
+      prune: false,
+    });
+    expect(
+      occurrencesOf(jobs[0]!).map((occurrence) => occurrence.date),
+    ).toEqual(['2026-10-07', '2026-09-30']);
+    expect(summary.removed).toBe(0);
+  });
+
+  it('takes the freshly resolved target when merging a matched job', () => {
+    const existing = [
+      base({
+        target: {
+          type: 'direct',
+          activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+        },
+      }),
+    ];
+    const imported = [
+      base({
+        target: {
+          type: 'direct',
+          activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=2',
+        },
+      }),
+    ];
+    const { jobs } = mergeImportedJobs(existing, imported);
+    expect(jobs[0]!.target).toEqual({
+      type: 'direct',
+      activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=2',
+    });
+  });
+
+  it('suppresses an occurrence matching a direct-target manual job with unknown discipline', () => {
+    const manual: Job = {
+      id: 'manual-direct',
+      enabled: true,
+      source: 'manual',
+      schedule: {
+        type: 'once',
+        date: '2026-09-30',
+        joinAt: '13:15',
+        leaveAt: '14:50',
+        timezone: 'Asia/Tomsk',
+      },
+      target: {
+        type: 'direct',
+        activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=9',
+      },
+      browser: { headless: false },
+    };
+    const imported = [
+      base({
+        schedule: {
+          type: 'imported',
+          timezone: 'Asia/Tomsk',
+          occurrences: [occ('2026-09-30')],
+        },
+      }),
+    ];
+    const { jobs } = mergeImportedJobs([manual], imported);
+    const importedJob = jobs.find((job) => job.source === 'timetable')!;
+    expect(occurrencesOf(importedJob)[0]!.suppressed).toBe(true);
+  });
+
   it('suppresses an imported occurrence that matches a manual weekly job', () => {
     const manual: Job = {
       ...base({}),

@@ -1,6 +1,13 @@
 import { JSDOM } from 'jsdom';
 import type { ParsedLesson } from './types.js';
 
+export class ScheduleParseError extends Error {
+  constructor(message = 'Schedule table not found') {
+    super(message);
+    this.name = 'ScheduleParseError';
+  }
+}
+
 const MONTHS: Record<string, string> = {
   янв: '01',
   января: '01',
@@ -101,7 +108,7 @@ export function parseLessons(
     (candidate) => candidate.querySelector('.training'),
   );
   if (!table) {
-    return [];
+    throw new ScheduleParseError();
   }
 
   const lessons: ParsedLesson[] = [];
