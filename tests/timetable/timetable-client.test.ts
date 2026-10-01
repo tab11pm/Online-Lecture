@@ -4,7 +4,10 @@ import type { HttpFetcher } from '../../src/timetable/http-fetcher.js';
 
 function fetcher(routes: Record<string, string>): HttpFetcher {
   return {
-    get: async (url) => routes[url] ?? routes[new URL(url).pathname] ?? '',
+    get: async (url) => {
+      const u = new URL(url);
+      return routes[u.pathname + u.search] ?? routes[u.pathname] ?? '';
+    },
   };
 }
 
