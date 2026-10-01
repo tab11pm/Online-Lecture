@@ -187,7 +187,7 @@ export class SdoMcpClient implements OnlineLectureResolver {
 
     return (await this.client.request(
       { method: 'sdo/resolveOnlineLecture' },
-      input as any,
+      input as unknown as Parameters<Client['request']>[1],
     )) as OnlineLectureResolution;
   }
 
