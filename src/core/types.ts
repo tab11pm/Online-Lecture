@@ -195,7 +195,15 @@ export interface SessionState {
 
 export interface BbbSession {
   page: any; // Playwright Page object
-  status: 'starting' | 'started' | 'joining' | 'joined' | 'monitoring' | 'leaving' | 'left' | 'error';
+  status:
+    | 'starting'
+    | 'started'
+    | 'joining'
+    | 'joined'
+    | 'monitoring'
+    | 'leaving'
+    | 'left'
+    | 'error';
   url: string;
   meetingId?: string;
   startedAt: Date;

@@ -43,7 +43,7 @@ export function discoverMyScheduleHref(html: string): string | undefined {
 }
 
 export function parseFacultyAndGroup(
-  href: string
+  href: string,
 ): { faculty: string; group: string } | undefined {
   const match = href.match(/faculties\/([^/]+)\/groups\/([^/?#]+)/);
   if (!match || !match[1] || !match[2]) {
@@ -84,7 +84,7 @@ function buildDate(header: string, year: number): string | undefined {
 
 function readTimes(cell: Element): { start: string; end: string } {
   const spans = Array.from(cell.children).filter(
-    (child) => child.tagName.toLowerCase() === 'span'
+    (child) => child.tagName.toLowerCase() === 'span',
   );
   const start = spans[0]?.textContent?.trim() ?? '';
   const end = spans[1]?.textContent?.trim() ?? '';
@@ -93,12 +93,12 @@ function readTimes(cell: Element): { start: string; end: string } {
 
 export function parseLessons(
   html: string,
-  options: { year: number }
+  options: { year: number },
 ): ParsedLesson[] {
   const { document } = new JSDOM(html).window;
 
-  const table = Array.from(document.querySelectorAll('table')).find((candidate) =>
-    candidate.querySelector('.training')
+  const table = Array.from(document.querySelectorAll('table')).find(
+    (candidate) => candidate.querySelector('.training'),
   );
   if (!table) {
     return [];
@@ -126,7 +126,9 @@ export function parseLessons(
       }
 
       const lessonId =
-        training.querySelector('[data-lesson-id]')?.getAttribute('data-lesson-id') ??
+        training
+          .querySelector('[data-lesson-id]')
+          ?.getAttribute('data-lesson-id') ??
         training.getAttribute('data-lesson-id') ??
         '';
       if (lessonId && seen.has(lessonId)) {
@@ -144,7 +146,8 @@ export function parseLessons(
         '';
 
       const kind = training.querySelector('.kind')?.textContent?.trim() ?? '';
-      const auditoriums = training.querySelector('.auditoriums')?.textContent?.trim() ?? '';
+      const auditoriums =
+        training.querySelector('.auditoriums')?.textContent?.trim() ?? '';
       const room = auditoriums.length > 0 ? auditoriums : undefined;
       const online = /ЭИОС/i.test(training.textContent ?? '');
       const { start, end } = readTimes(cell);

@@ -84,7 +84,9 @@ export async function executeCli(
       );
       const client = new TimetableClient({
         fetcher,
-        year: new Date((dependencies.now ?? (() => new Date()))()).getFullYear(),
+        year: new Date(
+          (dependencies.now ?? (() => new Date()))(),
+        ).getFullYear(),
       });
       const { faculty, group } =
         facultyOption !== undefined && groupOption !== undefined
@@ -207,7 +209,10 @@ export async function executeCli(
       };
     }
     if (databasePath === undefined) {
-      return { exitCode: 1, output: 'run-job requires --db <sqlite> parameter\n' };
+      return {
+        exitCode: 1,
+        output: 'run-job requires --db <sqlite> parameter\n',
+      };
     }
 
     try {

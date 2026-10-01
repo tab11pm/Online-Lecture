@@ -44,7 +44,7 @@ export class SdoMcpClient implements OnlineLectureResolver {
       },
       {
         capabilities: {},
-      }
+      },
     );
 
     await this.client.connect(this.transport);
@@ -66,7 +66,7 @@ export class SdoMcpClient implements OnlineLectureResolver {
         {
           username: credentials.username,
           password: credentials.password,
-        } as any
+        } as any,
       )) as { token: string; expiresAt: string };
 
       this.session = {
@@ -77,7 +77,7 @@ export class SdoMcpClient implements OnlineLectureResolver {
       return this.session;
     } catch (error) {
       throw new Error(
-        `SDO authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `SDO authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -97,13 +97,13 @@ export class SdoMcpClient implements OnlineLectureResolver {
     try {
       const response = (await this.client.request(
         { method: 'sdo/listCourses' },
-        { token: session.token } as any
+        { token: session.token } as any,
       )) as { courses: Course[] };
 
       return response.courses;
     } catch (error) {
       throw new Error(
-        `Failed to list courses: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to list courses: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -113,7 +113,7 @@ export class SdoMcpClient implements OnlineLectureResolver {
    */
   async findBbbActivity(
     courseId: string,
-    lectureName: string
+    lectureName: string,
   ): Promise<BbbActivity> {
     await this.ensureConnected();
 
@@ -132,13 +132,13 @@ export class SdoMcpClient implements OnlineLectureResolver {
           token: this.session.token,
           courseId,
           lectureName,
-        } as any
+        } as any,
       )) as { activity: BbbActivity };
 
       return response.activity;
     } catch (error) {
       throw new Error(
-        `Failed to find BBB activity: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to find BBB activity: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -158,18 +158,15 @@ export class SdoMcpClient implements OnlineLectureResolver {
     }
 
     try {
-      const response = (await this.client.request(
-        { method: 'sdo/getBbbUrl' },
-        {
-          token: this.session.token,
-          activityId,
-        } as any
-      )) as BbbUrl;
+      const response = (await this.client.request({ method: 'sdo/getBbbUrl' }, {
+        token: this.session.token,
+        activityId,
+      } as any)) as BbbUrl;
 
       return response;
     } catch (error) {
       throw new Error(
-        `Failed to get BBB URL: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to get BBB URL: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }

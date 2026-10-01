@@ -48,12 +48,14 @@ export async function buildImportedJobs(input: {
       continue;
     }
 
-    const occurrences: ImportedOccurrence[] = discipline.lessons.map((lesson) => ({
-      date: lesson.date,
-      joinAt: lesson.start,
-      leaveAt: lesson.end,
-      ...(lesson.room ? { room: lesson.room } : {}),
-    }));
+    const occurrences: ImportedOccurrence[] = discipline.lessons.map(
+      (lesson) => ({
+        date: lesson.date,
+        joinAt: lesson.start,
+        leaveAt: lesson.end,
+        ...(lesson.room ? { room: lesson.room } : {}),
+      }),
+    );
 
     jobs.push({
       id: `tt:${faculty}:${group}:${discipline.sdoCourseId}`,
