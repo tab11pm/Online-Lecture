@@ -936,7 +936,7 @@ import { SqliteStore } from '../../src/persistence/sqlite-store.js';
 import { SqliteJobRepository } from '../../src/persistence/job-repository.js';
 
 const home = '<a href="/faculties/fvs/groups/574-1">Мое расписание</a>';
-const week = '<tr><td>ср, 30 сент.</td><td><span>13:15</span><span>14:50</span><div class="training training_type_lecture"><span class="discipline" data-lesson-id="1">РВП</span><span class="kind">Лекция</span><span class="note">реализуется в ЭИОС</span></div></td></tr>';
+const week = '<table><tbody><tr><td>ср, 30 сент.</td><td><span>13:15</span><span>14:50</span><div class="training training_type_lecture"><span class="discipline" data-lesson-id="1">РВП</span><span class="kind">Лекция</span><span class="note">реализуется в ЭИОС</span></div></td></tr></tbody></table>';
 
 describe('cli import', () => {
   it('imports online lectures into the database', async () => {
