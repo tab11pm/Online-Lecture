@@ -60,8 +60,11 @@ describe('SdoMcpClient', () => {
 
   describe('resolveOnlineLecture', () => {
     it('returns the resolver payload from the MCP server', async () => {
-      const c = new SdoMcpClient(mockConfig) as any;
-      c.client = {
+      const c = new SdoMcpClient(mockConfig);
+      const mocked = c as unknown as {
+        client: { request: ReturnType<typeof vi.fn> };
+      };
+      mocked.client = {
         request: vi.fn().mockResolvedValue({ status: 'not_found' }),
       };
       await expect(
@@ -69,7 +72,7 @@ describe('SdoMcpClient', () => {
           courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
         }),
       ).resolves.toEqual({ status: 'not_found' });
-      expect(c.client.request).toHaveBeenCalledWith(
+      expect(mocked.client.request).toHaveBeenCalledWith(
         { method: 'sdo/resolveOnlineLecture' },
         { courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413' },
       );
