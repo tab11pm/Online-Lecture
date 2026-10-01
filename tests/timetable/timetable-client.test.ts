@@ -26,21 +26,22 @@ describe('TimetableClient', () => {
     });
   });
 
-  it('collects only online lessons across weeks and deduplicates by lessonId', async () => {
+  it('preserves distinct dated occurrences of a recurring online lesson across weeks', async () => {
     const client = new TimetableClient({
       fetcher: fetcher({
         '/faculties/fvs/groups/574-1':
-          '<a href="?week_id=839"></a><a href="?week_id=840"></a>',
-        '/faculties/fvs/groups/574-1?week_id=839':
+          '<a href="?week_id=841"></a><a href="?week_id=843"></a>',
+        '/faculties/fvs/groups/574-1?week_id=841':
           '<table><tbody><tr><td>ср, 30 сент.</td><td><span>13:15</span><span>14:50</span><div class="training training_type_lecture"><span class="discipline" data-lesson-id="9">РВП</span><span class="kind">Лекция</span><span class="note">реализуется в ЭИОС</span></div></td></tr></tbody></table>',
-        '/faculties/fvs/groups/574-1?week_id=840':
-          '<table><tbody><tr><td>пн, 05 окт.</td><td><span>13:15</span><span>14:50</span><div class="training training_type_lecture"><span class="discipline" data-lesson-id="9">РВП</span><span class="kind">Лекция</span><span class="note">реализуется в ЭИОС</span></div></td></tr></tbody></table>',
+        '/faculties/fvs/groups/574-1?week_id=843':
+          '<table><tbody><tr><td>ср, 07 окт.</td><td><span>13:15</span><span>14:50</span><div class="training training_type_lecture"><span class="discipline" data-lesson-id="9">РВП</span><span class="kind">Лекция</span><span class="note">реализуется в ЭИОС</span></div></td></tr></tbody></table>',
       }),
       baseUrl: 'https://timetable.tusur.ru',
       year: 2026,
     });
     const lessons = await client.fetchOnlineLessons('fvs', '574-1');
-    expect(lessons.map((l) => l.lessonId)).toEqual(['9']);
+    expect(lessons.map((l) => l.date)).toEqual(['2026-09-30', '2026-10-07']);
+    expect(lessons.every((l) => l.lessonId === '9')).toBe(true);
   });
 
   it('parses course links for a lesson', async () => {
