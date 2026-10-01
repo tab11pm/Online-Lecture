@@ -96,10 +96,10 @@ export async function executeCli(
         return { exitCode: 0, output: 'No online lessons found\n' };
       }
 
-      const { disciplines } = await groupOnlineDisciplines(
-        lessons,
-        (lessonId) => client.fetchCourseLinks(lessonId),
-      );
+      const { disciplines, unresolved: unmappedLessons } =
+        await groupOnlineDisciplines(lessons, (lessonId) =>
+          client.fetchCourseLinks(lessonId),
+        );
       const resolver = await (dependencies.createResolver ?? defaultResolver)();
       const built = await buildImportedJobs({
         faculty,
@@ -120,7 +120,9 @@ export async function executeCli(
       const jobRepo = new SqliteJobRepository(store);
       const existing = await jobRepo.listAll();
       const complete =
-        built.unresolved.length === 0 && built.ambiguous.length === 0;
+        unmappedLessons.length === 0 &&
+        built.unresolved.length === 0 &&
+        built.ambiguous.length === 0;
       const { jobs, summary } = mergeImportedJobs(existing, built.jobs, {
         prune: complete,
       });
