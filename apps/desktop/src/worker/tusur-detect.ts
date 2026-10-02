@@ -1,5 +1,7 @@
 export const LOGIN_URL = 'https://profile.tusur.ru/';
 
+export const TIMETABLE_URL = 'https://timetable.tusur.ru/';
+
 export const TUSUR_HOSTS = [
   'tusur.ru',
   'profile.tusur.ru',
@@ -25,28 +27,67 @@ const TWO_FACTOR_MARKERS = [
   'код из смс',
 ] as const;
 
-const LOGGED_IN_MARKERS = [
+// A `logged_in` verdict requires a structural authenticated element, never a
+// bare `logout`/`auth_cookie` substring from a script or config blob.
+const AUTHENTICATED_STRUCTURE_MARKERS = [
   'data-authenticated',
-  'auth_cookie',
-  'auth-cookie',
-  '/logout',
-  'sign out',
-  'log out',
-  'logout',
-  'выход',
+  'data-auth="true"',
+  "data-auth='true'",
 ] as const;
 
-const FORM_MARKERS = [
+const LOGOUT_LINK_PATTERN =
+  /<a\b[^>]*(?:href|class)\s*=\s*["'][^"']*logout[^"']*["']/;
+
+const PASSWORD_FIELD_MARKERS = [
   'type="password"',
   "type='password'",
   'name="password"',
   "name='password'",
+] as const;
+
+const FORM_MARKERS = [
+  ...PASSWORD_FIELD_MARKERS,
   'name="username"',
   "name='username'",
 ] as const;
 
+const ALLOWED_HOSTS: ReadonlySet<string> = new Set<string>([
+  ...TUSUR_HOSTS,
+  new URL(LOGIN_URL).hostname,
+]);
+
 function containsAny(haystack: string, needles: readonly string[]): boolean {
   return needles.some((needle) => haystack.includes(needle));
+}
+
+/**
+ * Only `https:` URLs on the TUSUR allowlist (or the login host) may be loaded.
+ */
+export function isAllowedTusurUrl(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return false;
+  }
+  return url.protocol === 'https:' && ALLOWED_HOSTS.has(url.hostname);
+}
+
+/**
+ * True when a navigation landed on the SSO login page instead of the
+ * authenticated target, e.g. an expired session redirect.
+ */
+export function isLoginRedirect(rawUrl: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(rawUrl);
+  } catch {
+    return true;
+  }
+  if (url.hostname === new URL(LOGIN_URL).hostname) {
+    return true;
+  }
+  return /\/login/i.test(url.pathname);
 }
 
 export function detectLoginState(html: string): LoginDetection {
@@ -57,11 +98,19 @@ export function detectLoginState(html: string): LoginDetection {
   if (containsAny(text, TWO_FACTOR_MARKERS)) {
     return 'two_factor';
   }
-  if (containsAny(text, LOGGED_IN_MARKERS)) {
+  const hasPasswordField = containsAny(text, PASSWORD_FIELD_MARKERS);
+  if (!hasPasswordField && hasAuthenticatedStructure(text)) {
     return 'logged_in';
   }
   if (containsAny(text, FORM_MARKERS)) {
     return 'form';
   }
   return 'form';
+}
+
+function hasAuthenticatedStructure(text: string): boolean {
+  if (containsAny(text, AUTHENTICATED_STRUCTURE_MARKERS)) {
+    return true;
+  }
+  return LOGOUT_LINK_PATTERN.test(text);
 }

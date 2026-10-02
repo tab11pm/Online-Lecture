@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <title>Вход — ТУСУР</title>
+    <script>
+      window.__routes = { logout: '/logout', auth_cookie: 'session' };
+    </script>
+  </head>
+  <body>
+    <main class="login">
+      <h1>Вход в личный кабинет</h1>
+      <form
+        class="login-form"
+        action="https://profile.tusur.ru/login"
+        method="post"
+      >
+        <label for="username">Логин</label>
+        <input id="username" name="username" type="text" required />
+        <label for="password">Пароль</label>
+        <input
+          id="password"
+          name="password"
+          type="password"
+          autocomplete="current-password"
+          required
+        />
+        <button type="submit">Войти</button>
+      </form>
+    </main>
+  </body>
+</html>
