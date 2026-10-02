@@ -1,8 +1,12 @@
+import { chmod } from 'node:fs/promises';
 import type { LoginOutcome } from '../shared/onboarding.js';
 import type { LoginCredentials, SessionProvider } from './session-provider.js';
 import {
   LOGIN_URL,
+  TIMETABLE_URL,
   detectLoginState,
+  isAllowedTusurUrl,
+  isLoginRedirect,
   type LoginDetection,
 } from './tusur-detect.js';
 
@@ -22,10 +26,23 @@ export interface SessionPage {
   close(): Promise<void>;
 }
 
+export interface RoutableRequest {
+  url(): string;
+}
+
+export interface RouteLike {
+  abort(errorCode?: string): Promise<void> | void;
+  continue(): Promise<void> | void;
+}
+
 export interface BrowserContextLike {
   newPage(): Promise<SessionPage>;
   storageState(options?: { path?: string }): Promise<unknown>;
   close(): Promise<void>;
+  route?(
+    url: string,
+    handler: (route: RouteLike, request: RoutableRequest) => void,
+  ): Promise<void> | void;
 }
 
 export interface BrowserLaunchOptions {
@@ -48,6 +65,10 @@ export const SELECTORS = {
   submit: 'button[type="submit"], input[type="submit"]',
 } as const;
 
+// The manual SSO fallback gives the user five minutes to finish login. This
+// exceeds the core RPC timeout, so `CoreProcess` deliberately exempts
+// `onboarding.openManualSso` from its request timeout and relies on
+// `onboarding.changed` push events instead (see core-process.ts).
 const DEFAULT_MANUAL_LOGIN_TIMEOUT_MS = 300_000;
 const DEFAULT_POLL_INTERVAL_MS = 1_000;
 const LOGIN_ERROR_MESSAGE = 'Не удалось выполнить вход в ТУСУР.';
@@ -70,6 +91,7 @@ export class TusurSessionProvider implements SessionProvider {
     let context: BrowserContextLike | undefined;
     try {
       context = await this.launch({ headless: true });
+      installHostGuard(context);
       const page = await context.newPage();
       await page.goto(LOGIN_URL);
 
@@ -78,7 +100,7 @@ export class TusurSessionProvider implements SessionProvider {
         return { ok: false, reason: initial };
       }
       if (initial === 'logged_in') {
-        await context.storageState({ path: authStatePath });
+        await persistAuthState(context, authStatePath);
         return { ok: true };
       }
 
@@ -88,7 +110,7 @@ export class TusurSessionProvider implements SessionProvider {
 
       const afterSubmit = await this.waitForSettledState(page);
       if (afterSubmit === 'logged_in') {
-        await context.storageState({ path: authStatePath });
+        await persistAuthState(context, authStatePath);
         return { ok: true };
       }
       if (afterSubmit === 'captcha' || afterSubmit === 'two_factor') {
@@ -108,12 +130,13 @@ export class TusurSessionProvider implements SessionProvider {
     let context: BrowserContextLike | undefined;
     try {
       context = await this.launch({ headless: false });
+      installHostGuard(context);
       const page = await context.newPage();
       await page.goto(LOGIN_URL);
 
       const state = await this.waitForManualLogin(page);
       if (state === 'logged_in') {
-        await context.storageState({ path: authStatePath });
+        await persistAuthState(context, authStatePath);
         return { ok: true };
       }
       if (state === 'captcha' || state === 'two_factor') {
@@ -133,8 +156,16 @@ export class TusurSessionProvider implements SessionProvider {
     let context: BrowserContextLike | undefined;
     try {
       context = await this.launch({ headless: true, authStatePath });
+      installHostGuard(context);
       const page = await context.newPage();
       await page.goto(LOGIN_URL);
+      if (detectLoginState(await page.content()) !== 'logged_in') {
+        return false;
+      }
+      await page.goto(TIMETABLE_URL);
+      if (isLoginRedirect(page.url())) {
+        return false;
+      }
       return detectLoginState(await page.content()) === 'logged_in';
     } catch {
       return false;
@@ -174,6 +205,31 @@ export class TusurSessionProvider implements SessionProvider {
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, this.pollIntervalMs));
+  }
+}
+
+function installHostGuard(context: BrowserContextLike): void {
+  if (!context.route) {
+    return;
+  }
+  void context.route('**', (route, request) => {
+    if (isAllowedTusurUrl(request.url())) {
+      void route.continue();
+    } else {
+      void route.abort('blockedbyclient');
+    }
+  });
+}
+
+async function persistAuthState(
+  context: BrowserContextLike,
+  authStatePath: string,
+): Promise<void> {
+  await context.storageState({ path: authStatePath });
+  try {
+    await chmod(authStatePath, 0o600);
+  } catch {
+    // Windows/EPERM: best-effort hardening; a chmod failure must not fail login.
   }
 }
 
