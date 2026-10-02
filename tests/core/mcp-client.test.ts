@@ -1,85 +1,160 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi } from 'vitest';
 import { SdoMcpClient } from '../../src/core/mcp-client.js';
-import type {
-  Session,
-  Course,
-  BbbActivity,
-  BbbUrl,
-  Credentials,
-} from '../../src/core/types.js';
 
-// Mock the MCP SDK
-vi.mock('@modelcontextprotocol/sdk', () => ({
-  Client: vi.fn().mockImplementation(() => ({
-    connect: vi.fn().mockResolvedValue(undefined),
-    close: vi.fn().mockResolvedValue(undefined),
-    request: vi.fn(),
-    callTool: vi.fn(),
-  })),
-  StdioClientTransport: vi.fn().mockImplementation(() => ({})),
-}));
-
-describe('SdoMcpClient', () => {
-  let client: SdoMcpClient;
-  const mockConfig = {
+function clientWith(callTool: ReturnType<typeof vi.fn>): SdoMcpClient {
+  const client = new SdoMcpClient({
     serverPath: '/path/to/sdo-mcp',
     connectionTimeout: 5000,
-  };
-
-  beforeEach(() => {
-    client = new SdoMcpClient(mockConfig);
   });
+  (client as unknown as { client: unknown }).client = { callTool };
+  return client;
+}
 
-  afterEach(async () => {
-    await client.close();
-  });
+function textResult(text: string) {
+  return { content: [{ type: 'text', text }] };
+}
 
-  describe('authenticate', () => {
-    it('should return session on successful authentication', async () => {
-      const credentials = {
-        username: 'testuser',
-        password: 'testpass',
-      };
+describe('SdoMcpClient', () => {
+  describe('connection lifecycle', () => {
+    it('closes without error when never connected', async () => {
+      const client = new SdoMcpClient({ serverPath: '/path/to/sdo-mcp' });
 
-      // The client should handle authentication gracefully
-      // When no real MCP server is available, it should throw a meaningful error
-      await expect(client.authenticate(credentials)).rejects.toThrow('spawn');
-    });
-  });
-
-  describe('session management', () => {
-    it('should return null session when not authenticated', () => {
-      const session = client.getSession();
-      expect(session).toBeNull();
-    });
-
-    it('should close connection without error when client is null', async () => {
-      // Should not throw
       await expect(client.close()).resolves.toBeUndefined();
+    });
+  });
+
+  describe('checkSdoAuth', () => {
+    it('calls check_sdo_auth and returns the authenticated flag', async () => {
+      const callTool = vi
+        .fn()
+        .mockResolvedValue(textResult(JSON.stringify({ authenticated: true })));
+      const client = clientWith(callTool);
+
+      await expect(client.checkSdoAuth()).resolves.toBe(true);
+      expect(callTool).toHaveBeenCalledWith({
+        name: 'check_sdo_auth',
+        arguments: {},
+      });
+    });
+
+    it('returns false when the session is invalid', async () => {
+      const callTool = vi
+        .fn()
+        .mockResolvedValue(
+          textResult(JSON.stringify({ authenticated: false })),
+        );
+      const client = clientWith(callTool);
+
+      await expect(client.checkSdoAuth()).resolves.toBe(false);
+    });
+  });
+
+  describe('listCourses', () => {
+    it('maps title and url from list_courses into Course objects', async () => {
+      const callTool = vi.fn().mockResolvedValue(
+        textResult(
+          JSON.stringify([
+            {
+              title: 'РМП2',
+              url: 'https://sdo.tusur.ru/course/view.php?id=22413',
+            },
+            {
+              title: 'РВП',
+              url: 'https://sdo.tusur.ru/course/view.php?id=22414',
+            },
+          ]),
+        ),
+      );
+      const client = clientWith(callTool);
+
+      await expect(client.listCourses()).resolves.toEqual([
+        {
+          id: '22413',
+          name: 'РМП2',
+          url: 'https://sdo.tusur.ru/course/view.php?id=22413',
+        },
+        {
+          id: '22414',
+          name: 'РВП',
+          url: 'https://sdo.tusur.ru/course/view.php?id=22414',
+        },
+      ]);
+      expect(callTool).toHaveBeenCalledWith({
+        name: 'list_courses',
+        arguments: {},
+      });
+    });
+  });
+
+  describe('findCourseModule', () => {
+    it('passes courseUrl and query and returns the matches payload', async () => {
+      const payload = {
+        courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+        query: 'лекция',
+        totalModules: 3,
+        matches: [
+          {
+            title: 'Онлайн-лекция',
+            url: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+            type: 'bigbluebuttonbn',
+            score: 2,
+          },
+        ],
+      };
+      const callTool = vi
+        .fn()
+        .mockResolvedValue(textResult(JSON.stringify(payload)));
+      const client = clientWith(callTool);
+
+      await expect(
+        client.findCourseModule(
+          'https://sdo.tusur.ru/course/view.php?id=22413',
+          'лекция',
+        ),
+      ).resolves.toEqual(payload);
+      expect(callTool).toHaveBeenCalledWith({
+        name: 'find_course_module',
+        arguments: {
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+          query: 'лекция',
+        },
+      });
+    });
+  });
+
+  describe('getAssignmentDetails', () => {
+    it('returns the raw text of the assignment page', async () => {
+      const callTool = vi.fn().mockResolvedValue(textResult('Текст задания'));
+      const client = clientWith(callTool);
+
+      await expect(
+        client.getAssignmentDetails(
+          'https://sdo.tusur.ru/mod/assign/view.php?id=5',
+        ),
+      ).resolves.toBe('Текст задания');
+      expect(callTool).toHaveBeenCalledWith({
+        name: 'get_assignment_details',
+        arguments: {
+          assignmentUrl: 'https://sdo.tusur.ru/mod/assign/view.php?id=5',
+        },
+      });
     });
   });
 
   describe('resolveOnlineLecture', () => {
     it('calls the resolve_online_lecture tool and parses the JSON result', async () => {
-      const c = new SdoMcpClient(mockConfig);
-      const mocked = c as unknown as {
-        client: { callTool: ReturnType<typeof vi.fn> };
-      };
-      mocked.client = {
-        callTool: vi.fn().mockResolvedValue({
-          content: [
-            { type: 'text', text: JSON.stringify({ status: 'not_found' }) },
-          ],
-        }),
-      };
+      const callTool = vi
+        .fn()
+        .mockResolvedValue(textResult(JSON.stringify({ status: 'not_found' })));
+      const client = clientWith(callTool);
 
       await expect(
-        c.resolveOnlineLecture({
+        client.resolveOnlineLecture({
           courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
         }),
       ).resolves.toEqual({ status: 'not_found' });
 
-      expect(mocked.client.callTool).toHaveBeenCalledWith({
+      expect(callTool).toHaveBeenCalledWith({
         name: 'resolve_online_lecture',
         arguments: {
           courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
@@ -88,7 +163,6 @@ describe('SdoMcpClient', () => {
     });
 
     it('parses a resolved payload with course and module', async () => {
-      const c = new SdoMcpClient(mockConfig);
       const payload = {
         status: 'resolved',
         course: { id: '22413', name: 'РМП2' },
@@ -100,73 +174,48 @@ describe('SdoMcpClient', () => {
           type: 'lecture',
         },
       };
-      const mocked = c as unknown as {
-        client: { callTool: ReturnType<typeof vi.fn> };
-      };
-      mocked.client = {
-        callTool: vi.fn().mockResolvedValue({
-          content: [{ type: 'text', text: JSON.stringify(payload) }],
-        }),
-      };
+      const callTool = vi
+        .fn()
+        .mockResolvedValue(textResult(JSON.stringify(payload)));
+      const client = clientWith(callTool);
 
       await expect(
-        c.resolveOnlineLecture({
+        client.resolveOnlineLecture({
           courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
         }),
       ).resolves.toEqual(payload);
     });
 
     it('throws when the tool returns no text content', async () => {
-      const c = new SdoMcpClient(mockConfig);
-      const mocked = c as unknown as {
-        client: { callTool: ReturnType<typeof vi.fn> };
-      };
-      mocked.client = {
-        callTool: vi.fn().mockResolvedValue({ content: [] }),
-      };
+      const callTool = vi.fn().mockResolvedValue({ content: [] });
+      const client = clientWith(callTool);
 
       await expect(
-        c.resolveOnlineLecture({ courseQuery: 'РМП2' }),
+        client.resolveOnlineLecture({ courseQuery: 'РМП2' }),
       ).rejects.toThrow('Empty resolve_online_lecture response');
     });
-  });
-});
 
-describe('SdoMcpClient types', () => {
-  it('should have correct types defined', () => {
-    // Verify types are properly exported
-    const credentials: Credentials = {
-      username: 'test',
-      password: 'test',
-    };
-    expect(credentials.username).toBe('test');
+    it('throws when the tool reports an error', async () => {
+      const callTool = vi.fn().mockResolvedValue({
+        isError: true,
+        content: [{ type: 'text', text: 'SDO page unavailable' }],
+      });
+      const client = clientWith(callTool);
 
-    const session: Session = {
-      token: 'token',
-      expiresAt: new Date(),
-    };
-    expect(session.token).toBe('token');
+      await expect(
+        client.resolveOnlineLecture({ courseQuery: 'РМП2' }),
+      ).rejects.toThrow('resolve_online_lecture failed: SDO page unavailable');
+    });
 
-    const course: Course = {
-      id: 'id',
-      name: 'name',
-    };
-    expect(course.id).toBe('id');
+    it('throws when the text content is not valid JSON', async () => {
+      const callTool = vi
+        .fn()
+        .mockResolvedValue(textResult('<html>not json</html>'));
+      const client = clientWith(callTool);
 
-    const activity: BbbActivity = {
-      id: 'id',
-      name: 'name',
-      courseUrl: 'https://sdo.tusur.ru/course/view.php?id=1',
-      activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
-      type: 'lecture',
-    };
-    expect(activity.id).toBe('id');
-
-    const bbbUrl: BbbUrl = {
-      url: 'https://bbb2.tusur.ru/meeting',
-      meetingId: 'meeting',
-      activityId: 'activity',
-    };
-    expect(bbbUrl.url).toContain('bbb2.tusur.ru');
+      await expect(
+        client.resolveOnlineLecture({ courseQuery: 'РМП2' }),
+      ).rejects.toThrow('Invalid resolve_online_lecture response');
+    });
   });
 });

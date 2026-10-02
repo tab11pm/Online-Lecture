@@ -56,9 +56,12 @@ Missing components for Phase B:
 
 **MCP Client** (`src/core/mcp-client.ts`):
 - Communicates with SDO MCP server via stdio protocol
-- Methods: `authenticate`, `listCourses`, `findBbbActivity`, `getBbbUrl`
+- Methods map to the server's real standard tools: `checkSdoAuth` → `check_sdo_auth`, `listCourses` → `list_courses`, `findCourseModule` → `find_course_module`, `getAssignmentDetails` → `get_assignment_details`, `resolveOnlineLecture` → `resolve_online_lecture`
+- Authentication is delegated to the shared Playwright storage state (`SDO_AUTH_STATE_PATH`); there is no credential/token exchange
+- Results are read from `content: [{ type: 'text', text: '<json>' }]`
 - Handles protocol errors, connection issues, and retries
 - Returns validated BBB URLs with metadata
+- **Superseded:** the original `authenticate`/`listCourses(session)`/`findBbbActivity`/`getBbbUrl` contract below used a fictional `sdo/*` request scheme and has been removed.
 
 **BBB Session Manager** (`src/core/bbb-session.ts`):
 - Manages Playwright browser lifecycle

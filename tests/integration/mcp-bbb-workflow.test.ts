@@ -18,25 +18,7 @@ describe('Integration: MCP → BBB Workflow', () => {
   beforeEach(() => {
     // Mock MCP client behavior
     mcpClient = {
-      authenticate: vi.fn().mockResolvedValue({
-        token: 'test-token',
-        expiresAt: new Date(Date.now() + 3600000),
-      }),
-      listCourses: vi.fn().mockResolvedValue([
-        { id: 'course-1', name: 'Advanced TypeScript' },
-      ]),
-      findBbbActivity: vi.fn().mockResolvedValue({
-        id: 'activity-1',
-        name: 'Lecture 1',
-        courseUrl: 'https://sdo.tusur.ru/course/view.php?id=course-1',
-        activityUrl: 'https://bbb2.tusur.ru/b/lec-abc123xyz',
-        type: 'lecture',
-      }),
-      getBbbUrl: vi.fn().mockResolvedValue({
-        url: 'https://bbb2.tusur.ru/b/lec-abc123xyz',
-        meetingId: 'lec-abc123xyz',
-        activityId: 'activity-1',
-      }),
+      resolveOnlineLecture: vi.fn().mockResolvedValue({ status: 'not_found' }),
       close: vi.fn().mockResolvedValue(undefined),
     } as any;
 
@@ -67,7 +49,10 @@ describe('Integration: MCP → BBB Workflow', () => {
           leaveAt: '15:00',
           timezone: 'UTC',
         },
-        target: { type: 'direct', activityUrl: 'https://bbb2.tusur.ru/b/lec-abc123xyz' },
+        target: {
+          type: 'direct',
+          activityUrl: 'https://bbb2.tusur.ru/b/lec-abc123xyz',
+        },
         browser: { headless: true },
       }),
       save: vi.fn().mockResolvedValue(undefined),
@@ -103,7 +88,7 @@ describe('Integration: MCP → BBB Workflow', () => {
       expect.objectContaining({
         headless: true,
         timeout: expect.any(Number),
-      })
+      }),
     );
     expect(bbbManager.joinAsListener).toHaveBeenCalled();
     expect(bbbManager.leaveSession).toHaveBeenCalled();
@@ -152,7 +137,7 @@ describe('Integration: MCP → BBB Workflow', () => {
     const result = await jobRunner.runJob('job-1', 'occ-1');
 
     // URL-based jobs should NOT call MCP
-    expect(mcpClient.authenticate).not.toHaveBeenCalled();
+    expect(mcpClient.resolveOnlineLecture).not.toHaveBeenCalled();
     expect(result.status).toBe('completed');
   });
 });

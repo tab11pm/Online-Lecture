@@ -7,7 +7,6 @@ import type {
   CompletionReason,
   JobRepository,
   RunRepository,
-  Credentials,
   SessionConfig,
   BbbSession,
   SessionState,
@@ -36,17 +35,13 @@ export class JobRunner {
     private mcpClient: SdoMcpClient,
     private bbbManager: PlaywrightBbbSessionManager,
     private jobRepo: JobRepository,
-    private runRepo: RunRepository
+    private runRepo: RunRepository,
   ) {}
 
   /**
    * Run a complete job: get URL → join BBB → monitor → leave
    */
-  async runJob(
-    jobId: string,
-    occurrenceId: string,
-    credentials?: Credentials
-  ): Promise<RunResult> {
+  async runJob(jobId: string, occurrenceId: string): Promise<RunResult> {
     const startTime = Date.now();
     const result: RunResult = {
       jobId,
@@ -79,28 +74,45 @@ export class JobRunner {
         bbbUrl = job.target.activityUrl;
         result.status = 'joining';
         dbRun.status = 'joining';
-      } else if (job.target.type === 'search' && credentials) {
+      } else if (job.target.type === 'search') {
         // Search for URL via MCP
         result.status = 'resolving';
         dbRun.status = 'resolving';
 
         try {
-          const session = await this.mcpClient.authenticate(credentials);
+          const courseQuery =
+            job.target.courseName || job.target.courseId || undefined;
 
-          const courseId = job.target.courseId || job.target.courseName || '';
-          const lectureQuery = job.target.lectureQuery || 'Lecture';
+          if (courseQuery === undefined) {
+            throw new Error('Search target requires courseName or courseId');
+          }
 
-          const activity = await this.mcpClient.findBbbActivity(
-            courseId,
-            lectureQuery
-          );
+          const resolution = await this.mcpClient.resolveOnlineLecture({
+            courseQuery,
+            lectureQuery: job.target.lectureQuery || 'Lecture',
+          });
 
-          bbbUrl = activity.activityUrl;
+          if (resolution.status === 'auth_required') {
+            throw new Error(
+              'SDO authentication required: refresh SDO_AUTH_STATE_PATH',
+            );
+          }
+          if (resolution.status === 'not_found') {
+            throw new Error(`Lecture not found for course: ${courseQuery}`);
+          }
+          if (resolution.status === 'ambiguous') {
+            throw new Error(
+              `Multiple lectures matched for course: ${courseQuery}`,
+            );
+          }
 
+          bbbUrl = resolution.module.activityUrl;
+
+          // Release the MCP server once the Moodle URL is resolved.
           await this.mcpClient.close();
         } catch (error) {
           throw new Error(
-            `Failed to resolve URL via MCP: ${error instanceof Error ? error.message : 'Unknown error'}`
+            `Failed to resolve URL via MCP: ${error instanceof Error ? error.message : 'Unknown error'}`,
           );
         }
 
@@ -108,7 +120,7 @@ export class JobRunner {
         dbRun.status = 'joining';
       } else {
         throw new Error(
-          'Cannot resolve target: direct type requires activityUrl, search type requires credentials'
+          'Cannot resolve target: direct type requires activityUrl, search type requires a course',
         );
       }
 
@@ -155,7 +167,7 @@ export class JobRunner {
       } catch (error) {
         result.status = 'failed';
         result.error = redactSensitiveText(
-          error instanceof Error ? error.message : 'Unknown error'
+          error instanceof Error ? error.message : 'Unknown error',
         );
         result.completionReason = 'error';
       } finally {
@@ -169,7 +181,7 @@ export class JobRunner {
             await this.bbbManager.leaveSession(session);
           } catch (error) {
             console.warn(
-              `Warning while leaving session: ${error instanceof Error ? error.message : 'Unknown error'}`
+              `Warning while leaving session: ${error instanceof Error ? error.message : 'Unknown error'}`,
             );
           }
         }
@@ -187,7 +199,7 @@ export class JobRunner {
     } catch (error) {
       result.status = 'failed';
       result.error = redactSensitiveText(
-        error instanceof Error ? error.message : 'Unknown error'
+        error instanceof Error ? error.message : 'Unknown error',
       );
       result.completionReason = 'error';
 
