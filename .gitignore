@@ -3,3 +3,7 @@ node_modules/
 dist/
 coverage/
 .data/
+
+# TUSUR SSO Playwright storage state (secrets)
+auth.json
+*.auth.json
