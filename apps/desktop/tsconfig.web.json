@@ -21,5 +21,6 @@
     "src/renderer/src/**/*.ts",
     "src/renderer/src/**/*.tsx",
     "src/shared/**/*.ts"
-  ]
+  ],
+  "exclude": ["node_modules", "src/shared/paths.ts"]
 }
