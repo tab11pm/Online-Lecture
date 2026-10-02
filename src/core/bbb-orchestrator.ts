@@ -2,7 +2,6 @@ import { SdoMcpClient } from './mcp-client.js';
 import { PlaywrightBbbSessionManager } from './bbb-session.js';
 import type { BbbSession } from './types.js';
 import { BbbActivityParser } from './bbb-activity-parser.js';
-import type { BbbActivity, Course } from './types.js';
 
 /**
  * BBB Target specification - either search-based or direct URL
@@ -47,7 +46,7 @@ export class BbbOrchestrator {
 
   constructor(
     sdoMcpClient: SdoMcpClient,
-    bbbSessionManager: PlaywrightBbbSessionManager
+    bbbSessionManager: PlaywrightBbbSessionManager,
   ) {
     this.sdoMcpClient = sdoMcpClient;
     this.bbbSessionManager = bbbSessionManager;
@@ -90,7 +89,9 @@ export class BbbOrchestrator {
       };
     } catch (error) {
       const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error joining BBB session';
+        error instanceof Error
+          ? error.message
+          : 'Unknown error joining BBB session';
 
       return {
         success: false,
@@ -141,7 +142,7 @@ export class BbbOrchestrator {
       // For now, return a placeholder error
       throw new Error(
         `Search-based target resolution not yet implemented. ` +
-          `Requires SDO MCP integration for course: ${courseId}, lecture: ${lectureQuery}`
+          `Requires SDO MCP integration for course: ${courseId}, lecture: ${lectureQuery}`,
       );
     }
 

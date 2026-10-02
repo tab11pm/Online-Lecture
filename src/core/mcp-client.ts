@@ -2,23 +2,35 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type {
-  Credentials,
-  Session,
   Course,
-  BbbActivity,
-  BbbUrl,
+  CourseModuleMatches,
   McpConfig,
   OnlineLectureResolution,
   OnlineLectureResolver,
 } from './types.js';
 
+interface RawCourse {
+  title: string;
+  url: string;
+}
+
+function courseIdFromUrl(url: string): string {
+  try {
+    return new URL(url).searchParams.get('id') ?? url;
+  } catch {
+    return url;
+  }
+}
+
 /**
- * SDO MCP Client - communicates with SDO MCP server via stdio protocol
+ * SDO MCP Client - communicates with the SDO MCP server via stdio protocol.
+ *
+ * The server authenticates through the shared Playwright storage state
+ * (`SDO_AUTH_STATE_PATH`); there is no credential or token exchange.
  */
 export class SdoMcpClient implements OnlineLectureResolver {
   private client: Client | null = null;
   private transport: StdioClientTransport | null = null;
-  private session: Session | null = null;
   private config: McpConfig;
 
   constructor(config: McpConfig) {
@@ -53,125 +65,99 @@ export class SdoMcpClient implements OnlineLectureResolver {
     await this.client.connect(this.transport);
   }
 
-  /**
-   * Authenticate with SDO using credentials
-   */
-  async authenticate(credentials: Credentials): Promise<Session> {
+  private async callTool(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<CallToolResult> {
     await this.ensureConnected();
 
     if (!this.client) {
       throw new Error('MCP client not initialized');
     }
 
+    return (await this.client.callTool({
+      name,
+      arguments: args,
+    })) as CallToolResult;
+  }
+
+  private static readText(name: string, result: CallToolResult): string {
+    const textBlock = result.content.find(
+      (block): block is { type: 'text'; text: string } =>
+        block.type === 'text' && typeof block.text === 'string',
+    );
+
+    if (textBlock === undefined) {
+      throw new Error(`Empty ${name} response`);
+    }
+
+    if (result.isError === true) {
+      throw new Error(`${name} failed: ${textBlock.text}`);
+    }
+
+    return textBlock.text;
+  }
+
+  private async callJsonTool<T>(
+    name: string,
+    args: Record<string, unknown>,
+  ): Promise<T> {
+    const text = SdoMcpClient.readText(name, await this.callTool(name, args));
+
     try {
-      const response = (await this.client.request(
-        { method: 'sdo/authenticate' },
-        {
-          username: credentials.username,
-          password: credentials.password,
-        } as any,
-      )) as { token: string; expiresAt: string };
-
-      this.session = {
-        token: response.token,
-        expiresAt: new Date(response.expiresAt),
-      };
-
-      return this.session;
-    } catch (error) {
-      throw new Error(
-        `SDO authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
+      return JSON.parse(text) as T;
+    } catch {
+      throw new Error(`Invalid ${name} response`);
     }
   }
 
   /**
-   * List all available courses for the authenticated session
+   * Check whether the locally stored SDO session is still valid
    */
-  async listCourses(session: Session): Promise<Course[]> {
-    await this.ensureConnected();
+  async checkSdoAuth(): Promise<boolean> {
+    const result = await this.callJsonTool<{ authenticated: boolean }>(
+      'check_sdo_auth',
+      {},
+    );
 
-    if (!this.client) {
-      throw new Error('MCP client not initialized');
-    }
-
-    this.validateSession(session);
-
-    try {
-      const response = (await this.client.request(
-        { method: 'sdo/listCourses' },
-        { token: session.token } as any,
-      )) as { courses: Course[] };
-
-      return response.courses;
-    } catch (error) {
-      throw new Error(
-        `Failed to list courses: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-    }
+    return result.authenticated === true;
   }
 
   /**
-   * Find BBB activity within a course by lecture name
+   * List all courses available to the authenticated SDO session
    */
-  async findBbbActivity(
-    courseId: string,
-    lectureName: string,
-  ): Promise<BbbActivity> {
-    await this.ensureConnected();
+  async listCourses(): Promise<Course[]> {
+    const courses = await this.callJsonTool<RawCourse[]>('list_courses', {});
 
-    if (!this.client) {
-      throw new Error('MCP client not initialized');
-    }
-
-    if (!this.session) {
-      throw new Error('Not authenticated. Call authenticate first.');
-    }
-
-    try {
-      const response = (await this.client.request(
-        { method: 'sdo/findBbbActivity' },
-        {
-          token: this.session.token,
-          courseId,
-          lectureName,
-        } as any,
-      )) as { activity: BbbActivity };
-
-      return response.activity;
-    } catch (error) {
-      throw new Error(
-        `Failed to find BBB activity: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-    }
+    return courses.map((course) => ({
+      id: courseIdFromUrl(course.url),
+      name: course.title,
+      url: course.url,
+    }));
   }
 
   /**
-   * Get BBB URL for a specific activity
+   * Find materials or assignments on a course page by title
    */
-  async getBbbUrl(activityId: string): Promise<BbbUrl> {
-    await this.ensureConnected();
+  async findCourseModule(
+    courseUrl: string,
+    query: string,
+  ): Promise<CourseModuleMatches> {
+    return this.callJsonTool<CourseModuleMatches>('find_course_module', {
+      courseUrl,
+      query,
+    });
+  }
 
-    if (!this.client) {
-      throw new Error('MCP client not initialized');
-    }
+  /**
+   * Open an assignment page in SDO and return its text
+   */
+  async getAssignmentDetails(assignmentUrl: string): Promise<string> {
+    const result = await this.callTool('get_assignment_details', {
+      assignmentUrl,
+    });
 
-    if (!this.session) {
-      throw new Error('Not authenticated. Call authenticate first.');
-    }
-
-    try {
-      const response = (await this.client.request({ method: 'sdo/getBbbUrl' }, {
-        token: this.session.token,
-        activityId,
-      } as any)) as BbbUrl;
-
-      return response;
-    } catch (error) {
-      throw new Error(
-        `Failed to get BBB URL: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
-    }
+    return SdoMcpClient.readText('get_assignment_details', result);
   }
 
   /**
@@ -182,42 +168,10 @@ export class SdoMcpClient implements OnlineLectureResolver {
     courseQuery?: string;
     lectureQuery?: string;
   }): Promise<OnlineLectureResolution> {
-    await this.ensureConnected();
-
-    if (!this.client) {
-      throw new Error('MCP client not initialized');
-    }
-
-    const result = (await this.client.callTool({
-      name: 'resolve_online_lecture',
-      arguments: input,
-    })) as CallToolResult;
-
-    const textBlock = result.content.find(
-      (block): block is { type: 'text'; text: string } =>
-        block.type === 'text' && typeof block.text === 'string',
+    return this.callJsonTool<OnlineLectureResolution>(
+      'resolve_online_lecture',
+      input,
     );
-
-    if (textBlock === undefined) {
-      throw new Error('Empty resolve_online_lecture response');
-    }
-
-    if (result.isError === true) {
-      throw new Error(`resolve_online_lecture failed: ${textBlock.text}`);
-    }
-
-    try {
-      return JSON.parse(textBlock.text) as OnlineLectureResolution;
-    } catch {
-      throw new Error('Invalid resolve_online_lecture response');
-    }
-  }
-
-  /**
-   * Get the current session if authenticated
-   */
-  getSession(): Session | null {
-    return this.session;
   }
 
   /**
@@ -228,20 +182,6 @@ export class SdoMcpClient implements OnlineLectureResolver {
       await this.client.close();
       this.client = null;
       this.transport = null;
-      this.session = null;
-    }
-  }
-
-  /**
-   * Validate that session is still valid
-   */
-  private validateSession(session: Session): void {
-    if (session.token !== this.session?.token) {
-      throw new Error('Session mismatch');
-    }
-
-    if (session.expiresAt < new Date()) {
-      throw new Error('Session expired');
     }
   }
 }

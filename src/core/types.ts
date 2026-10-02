@@ -119,28 +119,24 @@ export interface LectureRunner {
 }
 
 // MCP Client types
-export interface Credentials {
-  username: string;
-  password: string;
-}
-
-export interface Session {
-  token: string;
-  expiresAt: Date;
-}
-
 export interface Course {
   id: string;
   name: string;
   url?: string;
 }
 
-export interface BbbActivity {
-  id: string;
-  name: string;
+export interface CourseModuleMatch {
+  title: string;
+  url: string;
+  type: string;
+  score: number;
+}
+
+export interface CourseModuleMatches {
   courseUrl: string;
-  activityUrl: string;
-  type: 'lecture' | 'practical';
+  query: string;
+  totalModules: number;
+  matches: CourseModuleMatch[];
 }
 
 export interface OnlineLectureCandidate {
@@ -163,12 +159,6 @@ export interface OnlineLectureResolver {
     courseQuery?: string;
     lectureQuery?: string;
   }): Promise<OnlineLectureResolution>;
-}
-
-export interface BbbUrl {
-  url: string;
-  meetingId: string;
-  activityId: string;
 }
 
 export interface McpConfig {

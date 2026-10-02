@@ -17,10 +17,7 @@ describe('JobRunner', () => {
 
   beforeEach(() => {
     mockMcpClient = {
-      authenticate: vi.fn().mockResolvedValue({
-        token: 'test-token',
-        expiresAt: new Date(Date.now() + 3600000),
-      }),
+      resolveOnlineLecture: vi.fn().mockResolvedValue({ status: 'not_found' }),
       close: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -33,7 +30,9 @@ describe('JobRunner', () => {
         startedAt: new Date(),
       }),
       joinAsListener: vi.fn().mockResolvedValue(undefined),
-      monitorSession: vi.fn().mockRejectedValue(new Error('Session monitoring timeout')),
+      monitorSession: vi
+        .fn()
+        .mockRejectedValue(new Error('Session monitoring timeout')),
       leaveSession: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -42,7 +41,13 @@ describe('JobRunner', () => {
       getById: vi.fn().mockResolvedValue({
         id: 'job-1',
         enabled: true,
-        schedule: { type: 'once', date: '2026-09-28', joinAt: '14:00', leaveAt: '15:00', timezone: 'UTC' },
+        schedule: {
+          type: 'once',
+          date: '2026-09-28',
+          joinAt: '14:00',
+          leaveAt: '15:00',
+          timezone: 'UTC',
+        },
         target: { type: 'direct', activityUrl: 'https://bbb2.tusur.ru/test' },
         browser: { headless: false },
       }),
@@ -67,7 +72,7 @@ describe('JobRunner', () => {
       mockMcpClient,
       mockBbbManager,
       mockJobRepo,
-      mockRunRepo
+      mockRunRepo,
     );
   });
 
@@ -94,7 +99,7 @@ describe('JobRunner', () => {
         'https://bbb2.tusur.ru/test',
         expect.objectContaining({
           headless: false,
-        })
+        }),
       );
     });
 
@@ -121,13 +126,104 @@ describe('JobRunner', () => {
 
     it('should handle session start errors', async () => {
       (mockBbbManager.startSession as any).mockRejectedValueOnce(
-        new Error('Browser failed')
+        new Error('Browser failed'),
       );
 
       const result = await runner.runJob('job-1', 'occ-1');
 
       expect(result.status).toBe('failed');
       expect(result.error?.includes('Browser failed')).toBe(true);
+    });
+  });
+
+  describe('runJob with a search target', () => {
+    it('resolves the lecture via MCP and joins the returned URL', async () => {
+      (mockJobRepo.getById as any).mockResolvedValueOnce({
+        id: 'job-1',
+        enabled: true,
+        schedule: {
+          type: 'once',
+          date: '2026-09-28',
+          joinAt: '14:00',
+          leaveAt: '15:00',
+          timezone: 'UTC',
+        },
+        target: { type: 'search', courseName: 'РМП2', lectureQuery: 'Лекция' },
+        browser: { headless: false },
+      });
+      mockMcpClient.resolveOnlineLecture.mockResolvedValueOnce({
+        status: 'resolved',
+        course: { id: '22413', name: 'РМП2' },
+        module: {
+          id: '1',
+          name: 'Онлайн-лекция',
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+          activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+          type: 'lecture',
+        },
+      });
+
+      const result = await runner.runJob('job-1', 'occ-1');
+
+      expect(mockMcpClient.resolveOnlineLecture).toHaveBeenCalledWith({
+        courseQuery: 'РМП2',
+        lectureQuery: 'Лекция',
+      });
+      expect(mockBbbManager.startSession).toHaveBeenCalledWith(
+        'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+        expect.any(Object),
+      );
+      expect(mockMcpClient.close).toHaveBeenCalled();
+      expect(result.status).toBe('completed');
+    });
+
+    it('fails when the SDO session is not authenticated', async () => {
+      (mockJobRepo.getById as any).mockResolvedValueOnce({
+        id: 'job-1',
+        enabled: true,
+        schedule: {
+          type: 'once',
+          date: '2026-09-28',
+          joinAt: '14:00',
+          leaveAt: '15:00',
+          timezone: 'UTC',
+        },
+        target: { type: 'search', courseName: 'РМП2' },
+        browser: { headless: false },
+      });
+      mockMcpClient.resolveOnlineLecture.mockResolvedValueOnce({
+        status: 'auth_required',
+      });
+
+      const result = await runner.runJob('job-1', 'occ-1');
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('authentication required');
+      expect(mockBbbManager.startSession).not.toHaveBeenCalled();
+    });
+
+    it('fails when no lecture is found', async () => {
+      (mockJobRepo.getById as any).mockResolvedValueOnce({
+        id: 'job-1',
+        enabled: true,
+        schedule: {
+          type: 'once',
+          date: '2026-09-28',
+          joinAt: '14:00',
+          leaveAt: '15:00',
+          timezone: 'UTC',
+        },
+        target: { type: 'search', courseName: 'РМП2' },
+        browser: { headless: false },
+      });
+      mockMcpClient.resolveOnlineLecture.mockResolvedValueOnce({
+        status: 'not_found',
+      });
+
+      const result = await runner.runJob('job-1', 'occ-1');
+
+      expect(result.status).toBe('failed');
+      expect(result.error).toContain('not found');
     });
   });
 });

@@ -7,7 +7,7 @@
 - **Репозиторий:** `/home/tabek/D/tusur/online-lecture` (Node/TypeScript, ESM, vitest, better-sqlite3, Playwright, luxon, zod, commander).
 - **HEAD:** ветка `master`; фича «Автоимпорт расписания ТУСУР» слита, поверх — фикс запуска реального MCP.
 - **Рабочее дерево:** чистое, кроме несвязанных `data/lectures.db` (modified) и `data/backups/*.sqlite` (untracked) — их не трогать.
-- **Гейты:** `npm run build` чист · `npm test` = **175** (28 файлов) · `npm run lint` = 65 (старый baseline, дельта 0) · prettier по файлам фичи чист.
+- **Гейты:** `npm run build` чист · `npm test` = **172** (28 файлов) · `npm run lint` = 58 (baseline был 65; новые/изменённые файлы чистые по prettier) · prettier по файлам фичи чист.
 
 ## Документы (источник истины)
 
@@ -53,7 +53,9 @@
 - MCP-сервер (`sdo_mcp`) регистрирует **стандартный инструмент** `resolve_online_lecture` (и `check_sdo_auth`); вызов — `tools/call`, результат — `content: [{ type: 'text', text: '<JSON результата>' }]`.
 - Наш `SdoMcpClient.resolveOnlineLecture` (`src/core/mcp-client.ts`) теперь вызывает его через `client.callTool({ name: 'resolve_online_lecture', arguments: input })` и разбирает `content[].text` как JSON. Контракт типов совпадает: `resolved{ course:{id,name,url?}, module:{id,name,courseUrl,activityUrl,type} } | ambiguous{candidates} | not_found | auth_required`.
 - Вход в SDO — по storage state (`SDO_AUTH_STATE_PATH`), без пароля; при отсутствии/истечении сессии инструмент возвращает `auth_required`.
-- **Известный долг:** остальные методы `SdoMcpClient` (`authenticate`, `listCourses`, `findBbbActivity`, `getBbbUrl`) собраны под несуществующую схему `sdo/*` и с реальным сервером не совместимы. Импорт их не использует (`resolveOnlineLecture` самодостаточен), но старый поток run/BBB по ним работать не будет — их нужно перевести на реальные инструменты (`check_sdo_auth`, `list_courses`, `find_course_module`, `get_assignment_details`, …).
+- **Методы клиента переведены на реальные инструменты (сделано).** Удалена несуществующая схема `sdo/*`: вместо `authenticate`/`Session` — `checkSdoAuth()` → `check_sdo_auth`; `listCourses()` (без сессии) → `list_courses`; `findCourseModule(courseUrl, query)` → `find_course_module`; `getAssignmentDetails(url)` → `get_assignment_details`. Методы `findBbbActivity`/`getBbbUrl` и типы `Credentials`/`Session`/`BbbActivity`/`BbbUrl` удалены.
+- `JobRunner` search-ветка теперь вызывает `resolveOnlineLecture` и явно обрабатывает `auth_required`/`not_found`/`ambiguous`, после резолва закрывает MCP. `credentials` из `runJob` убраны (аутентификация — по storage state).
+- Общий разбор ответа вынесен в `callJsonTool`/`readText` (`content[].text` → JSON), поэтому все инструменты используют один контракт.
 
 ## Запуск реального MCP-сервера (сделано)
 
