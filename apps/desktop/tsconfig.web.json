@@ -11,6 +11,10 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["../../src/*"]
+    },
     "types": ["vite/client"]
   },
   "include": [

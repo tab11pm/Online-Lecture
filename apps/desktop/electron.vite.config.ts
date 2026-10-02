@@ -7,6 +7,11 @@ const external = ['electron', 'better-sqlite3', 'playwright'];
 
 export default defineConfig({
   main: {
+    resolve: {
+      alias: {
+        '@core': coreSrc,
+      },
+    },
     build: {
       rollupOptions: {
         external,
@@ -14,6 +19,11 @@ export default defineConfig({
     },
   },
   preload: {
+    resolve: {
+      alias: {
+        '@core': coreSrc,
+      },
+    },
     build: {
       rollupOptions: {
         external,

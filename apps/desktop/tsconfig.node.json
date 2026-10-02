@@ -9,6 +9,10 @@
     "skipLibCheck": true,
     "noUncheckedIndexedAccess": true,
     "noEmit": true,
+    "baseUrl": ".",
+    "paths": {
+      "@core/*": ["../../src/*"]
+    },
     "types": ["node", "electron-vite/node"]
   },
   "include": [
