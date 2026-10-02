@@ -5,8 +5,7 @@ export type MainCommand =
   | { type: 'onboarding.login'; input: LoginInput }
   | { type: 'onboarding.openManualSso' }
   | { type: 'onboarding.checkSession' }
-  | { type: 'onboarding.getState' }
-  | { type: 'app.paths' };
+  | { type: 'onboarding.getState' };
 
 export type HostEvent =
   | { type: 'onboarding.changed'; state: OnboardingState }
