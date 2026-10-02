@@ -6,6 +6,9 @@
   "workspaces": [
     "apps/*"
   ],
+  "overrides": {
+    "vite": "^7.3.6"
+  },
   "scripts": {
     "build": "tsc --noEmit && npm run typecheck -w @online-lecture/desktop",
     "cli": "tsx src/cli/index.ts",
