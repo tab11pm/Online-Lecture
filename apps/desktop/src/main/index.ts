@@ -1,3 +1,4 @@
+import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
 import { CHANNELS } from '../shared/ipc-contract.js';
@@ -6,7 +7,7 @@ import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import { setAutostart as applyAutostart } from './autostart.js';
 import { CoreProcess } from './core-process.js';
 import { registerIpc } from './ipc.js';
-import { resolveAppPaths } from './paths.js';
+import { resolveAppPaths, resolveDataRoot } from './paths.js';
 import { createSafeStorageBackend } from './safe-storage-backend.js';
 import { SecretStore } from './secret-store.js';
 import { SettingsStore } from './settings-store.js';
@@ -14,6 +15,16 @@ import { createTray } from './tray.js';
 import { createMainWindow } from './window.js';
 
 const startHidden = process.argv.includes('--hidden');
+
+// Keep all app data under the per-user Local app data root on Windows, not the
+// roaming profile. Must run before `whenReady` (and before sessionData is used).
+const appDataRoot = resolveDataRoot();
+try {
+  mkdirSync(appDataRoot, { recursive: true });
+  app.setPath('userData', appDataRoot);
+} catch {
+  // Keep Electron's default userData if the Local root cannot be prepared.
+}
 
 let mainWindow: BrowserWindow | undefined;
 let tray: ReturnType<typeof createTray> | undefined;
