@@ -48,12 +48,19 @@
 - Парсер различает «пустая неделя» (`[]`) и «сломанная страница» (исключение).
 - Никогда не логировать `sessionToken`, cookies, join-URL; секреты только локально.
 
+## Интеграция с SDO MCP (реальный сервер)
+
+- MCP-сервер (`sdo_mcp`) регистрирует **стандартный инструмент** `resolve_online_lecture` (и `check_sdo_auth`); вызов — `tools/call`, результат — `content: [{ type: 'text', text: '<JSON результата>' }]`.
+- Наш `SdoMcpClient.resolveOnlineLecture` (`src/core/mcp-client.ts`) теперь вызывает его через `client.callTool({ name: 'resolve_online_lecture', arguments: input })` и разбирает `content[].text` как JSON. Контракт типов совпадает: `resolved{ course:{id,name,url?}, module:{id,name,courseUrl,activityUrl,type} } | ambiguous{candidates} | not_found | auth_required`.
+- Вход в SDO — по storage state (`SDO_AUTH_STATE_PATH`), без пароля; при отсутствии/истечении сессии инструмент возвращает `auth_required`.
+- **Известный долг:** остальные методы `SdoMcpClient` (`authenticate`, `listCourses`, `findBbbActivity`, `getBbbUrl`) собраны под несуществующую схему `sdo/*` и с реальным сервером не совместимы. Импорт их не использует (`resolveOnlineLecture` самодостаточен), но старый поток run/BBB по ним работать не будет — их нужно перевести на реальные инструменты (`check_sdo_auth`, `list_courses`, `find_course_module`, `get_assignment_details`, …).
+
 ## Что ещё НЕ сделано
 
-1. **SDO MCP:** инструмент `resolve_online_lecture` не реализован. Без него импорт парсит расписание, но заданий не создаёт (всё `not_found`). Контракт: вход `courseUrl | courseQuery | lectureQuery`, выход `resolved | ambiguous | not_found | auth_required`; `courseUrl` = `https://sdo.tusur.ru/course/view.php?id=<id>`; не отдавать `sessionToken`; всегда закрывать browser/context.
-2. **Фаза 3 (Electron):** onboarding (форма логин/пароль + запасное видимое окно SSO), хранение пароля (DPAPI), список/правки/«Перенести», трей, автозапуск.
-3. **Фаза 4:** Windows-упаковка одним установщиком + E2E.
-4. **Живой smoke не проводился:** нужен `auth.json` и рабочий SDO MCP.
+1. **Фаза 3 (Electron):** onboarding (форма логин/пароль + запасное видимое окно SSO), хранение пароля (DPAPI), список/правки/«Перенести», трей, автозапуск.
+2. **Фаза 4:** Windows-упаковка одним установщиком + E2E.
+3. **Живой smoke:** парсинг можно проверить с `auth.json`; полный импорт с созданием заданий требует установленного `sdo_mcp` и `SDO_MCP_SERVER_PATH`, а также session storage state в `SDO_AUTH_STATE_PATH`.
+
 
 ## Как проверить на Windows
 
@@ -67,7 +74,14 @@ npm test
 npx playwright codegen --save-storage=./auth.json https://timetable.tusur.ru/   # войти и закрыть окно
 npm run cli -- import --db ./data/lectures.db --auth-state ./auth.json
 npm run cli -- jobs list --db ./data/lectures.db
+
+# полный импорт с резолвом BBB (нужен собранный sdo_mcp):
+$env:SDO_MCP_SERVER_PATH="C:\path\to\sdo-mcp"
+$env:SDO_AUTH_STATE_PATH="C:\path\to\auth.json"   # MCP читает сессию отсюда
+npm run cli -- import --db ./data/lectures.db --auth-state ./auth.json
 ```
+
+`--auth-state` нужен нашему timetable-фетчеру; `SDO_AUTH_STATE_PATH` — самому MCP-серверу (та же сессия).
 
 Тестовый живой пример группы: `fvs/574-1`; онлайн-пары — РМП2 (SDO id `22413`) и РВП (`22414`).
 
