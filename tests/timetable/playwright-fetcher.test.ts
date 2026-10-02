@@ -45,6 +45,34 @@ describe('createPlaywrightFetcher', () => {
     expect(browser.close).toHaveBeenCalledTimes(1);
   });
 
+  it('returns the raw JSON body instead of the browser JSON-viewer markup', async () => {
+    const page = {
+      goto: vi.fn().mockResolvedValue({
+        headers: () => ({ 'content-type': 'application/json' }),
+        text: vi.fn().mockResolvedValue('[{"url":"x"}]'),
+      }),
+      content: vi.fn().mockResolvedValue('<html><pre>wrapped</pre></html>'),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const context = {
+      newPage: vi.fn().mockResolvedValue(page),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    const browser = {
+      newContext: vi.fn().mockResolvedValue(context),
+      close: vi.fn().mockResolvedValue(undefined),
+    };
+    vi.mocked(chromium.launch).mockResolvedValueOnce(browser as never);
+
+    const fetcher = await createPlaywrightFetcher({ authStatePath });
+
+    await expect(
+      fetcher.get('/ocenka/api/v1/lessons/9/course_links'),
+    ).resolves.toBe('[{"url":"x"}]');
+    expect(page.content).not.toHaveBeenCalled();
+    expect(page.close).toHaveBeenCalledTimes(1);
+  });
+
   it('closes the browser even if closing the context fails', async () => {
     const context = {
       close: vi.fn().mockRejectedValue(new Error('context close failed')),

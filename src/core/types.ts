@@ -173,6 +173,9 @@ export interface BbbUrl {
 
 export interface McpConfig {
   serverPath: string;
+  args?: string[];
+  cwd?: string;
+  env?: Record<string, string>;
   timeout?: number;
   connectionTimeout?: number;
 }

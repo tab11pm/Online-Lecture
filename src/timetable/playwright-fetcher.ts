@@ -35,7 +35,13 @@ export async function createPlaywrightFetcher({
       const target = new URL(url, baseUrl).toString();
       const page = await context.newPage();
       try {
-        await page.goto(target, { waitUntil: 'domcontentloaded' });
+        const response = await page.goto(target, {
+          waitUntil: 'domcontentloaded',
+        });
+        const contentType = response?.headers()['content-type'] ?? '';
+        if (contentType.includes('json')) {
+          return (await response?.text()) ?? '';
+        }
         return await page.content();
       } finally {
         await page.close();
