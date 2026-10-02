@@ -1,0 +1,168 @@
+import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
+import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
+import type { AppPaths } from '../shared/paths.js';
+import { OnboardingMachine } from './onboarding-machine.js';
+import type { SessionProvider } from './session-provider.js';
+
+export interface HostTransport {
+  post(event: HostEvent): void;
+  onMessage(handler: (command: MainCommand) => void): void;
+}
+
+export interface CoreHostDependencies {
+  paths: AppPaths;
+  machine?: OnboardingMachine;
+  provider?: SessionProvider;
+}
+
+const URL_PATTERN = /https?:\/\/[^\s"'<>]+/giu;
+const COOKIE_HEADER_PATTERN = /(cookie\s*:\s*)[^\r\n;]+/giu;
+const SENSITIVE_KEY_PATTERN =
+  /\b(sessionToken|sesskey|token|authorization)=[^\s&;]+/giu;
+
+export class CoreHost {
+  private readonly paths: AppPaths;
+  private readonly machine: OnboardingMachine;
+  private capturedOutcome: LoginOutcome | undefined;
+  private unsubscribe: (() => void) | undefined;
+  private started = false;
+
+  constructor(
+    private readonly transport: HostTransport,
+    deps: CoreHostDependencies,
+  ) {
+    this.paths = deps.paths;
+    this.machine = deps.machine ?? this.buildMachine(deps.provider);
+  }
+
+  start(): void {
+    if (this.started) {
+      return;
+    }
+    this.started = true;
+    this.unsubscribe = this.machine.onChange((state) =>
+      this.postChanged(state),
+    );
+    this.transport.onMessage((command) => {
+      void this.handle(command);
+    });
+    this.machine.start();
+  }
+
+  async stop(): Promise<void> {
+    this.started = false;
+    this.unsubscribe?.();
+    this.unsubscribe = undefined;
+  }
+
+  private buildMachine(provider?: SessionProvider): OnboardingMachine {
+    const session = provider ?? createLazyPlaywrightProvider();
+    return new OnboardingMachine({
+      login: async (input) => {
+        const outcome = await session.loginWithCredentials({
+          ...input,
+          authStatePath: this.paths.authState,
+        });
+        this.capturedOutcome = outcome;
+        return outcome;
+      },
+      openManualSso: async () => {
+        const outcome = await session.openManualLogin(this.paths.authState);
+        this.capturedOutcome = outcome;
+        return outcome;
+      },
+      checkSession: () => session.checkSession(this.paths.authState),
+    });
+  }
+
+  private async handle(command: MainCommand): Promise<void> {
+    if (!this.started) {
+      return;
+    }
+    try {
+      switch (command.type) {
+        case 'onboarding.getState':
+          this.postChanged(this.machine.getState());
+          return;
+        case 'onboarding.login':
+          this.postOutcome(await this.machine.submitCredentials(command.input));
+          return;
+        case 'onboarding.openManualSso':
+          this.postOutcome(await this.machine.openManualSso());
+          return;
+        case 'onboarding.checkSession':
+          this.postChanged(await this.machine.checkSession());
+          return;
+        default:
+          return;
+      }
+    } catch (error) {
+      this.transport.post({
+        type: 'host.error',
+        message: redact(errorMessage(error)),
+      });
+    }
+  }
+
+  private postChanged(state: OnboardingState): void {
+    this.transport.post({ type: 'onboarding.changed', state });
+  }
+
+  private postOutcome(state: OnboardingState): void {
+    const outcome = this.capturedOutcome ?? outcomeFromState(state);
+    this.capturedOutcome = undefined;
+    this.transport.post({ type: 'onboarding.loginResult', outcome });
+  }
+}
+
+function createLazyPlaywrightProvider(): SessionProvider {
+  let pending: Promise<SessionProvider> | undefined;
+  const resolve = (): Promise<SessionProvider> => {
+    pending ??= (async () => {
+      const { TusurSessionProvider } = await import('./tusur-session.js');
+      const { createPlaywrightLauncher } =
+        await import('./playwright-launcher.js');
+      return new TusurSessionProvider(createPlaywrightLauncher());
+    })();
+    return pending;
+  };
+  return {
+    loginWithCredentials: async (input) =>
+      (await resolve()).loginWithCredentials(input),
+    openManualLogin: async (authStatePath) =>
+      (await resolve()).openManualLogin(authStatePath),
+    checkSession: async (authStatePath) =>
+      (await resolve()).checkSession(authStatePath),
+  };
+}
+
+function outcomeFromState(state: OnboardingState): LoginOutcome {
+  switch (state.phase) {
+    case 'session_ready':
+      return { ok: true };
+    case 'manual_sso':
+      return { ok: false, reason: 'captcha' };
+    case 'credentials':
+      return state.error
+        ? { ok: false, reason: 'invalid', message: state.error }
+        : { ok: false, reason: 'invalid' };
+    case 'failed':
+      return { ok: false, reason: 'error', message: state.message };
+    default:
+      return { ok: false, reason: 'error' };
+  }
+}
+
+function errorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return typeof error === 'string' ? error : 'Не удалось выполнить операцию.';
+}
+
+function redact(message: string): string {
+  return message
+    .replace(URL_PATTERN, '[REDACTED_URL]')
+    .replace(COOKIE_HEADER_PATTERN, '$1[REDACTED]')
+    .replace(SENSITIVE_KEY_PATTERN, '$1=[REDACTED]');
+}
