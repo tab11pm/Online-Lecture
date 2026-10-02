@@ -7,3 +7,7 @@ coverage/
 # TUSUR SSO Playwright storage state (secrets)
 auth.json
 *.auth.json
+
+# Local environment (may contain paths/secrets)
+.env
+.env.local

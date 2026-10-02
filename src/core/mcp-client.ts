@@ -35,7 +35,9 @@ export class SdoMcpClient implements OnlineLectureResolver {
 
     this.transport = new StdioClientTransport({
       command: this.config.serverPath,
-      args: [],
+      args: this.config.args ?? [],
+      ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
+      ...(this.config.env ? { env: this.config.env } : {}),
     });
 
     this.client = new Client(

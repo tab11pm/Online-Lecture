@@ -5,9 +5,9 @@
 ## Состояние репозитория
 
 - **Репозиторий:** `/home/tabek/D/tusur/online-lecture` (Node/TypeScript, ESM, vitest, better-sqlite3, Playwright, luxon, zod, commander).
-- **HEAD:** `7316769` (ветка `master`), фича «Автоимпорт расписания ТУСУР» слита fast-forward.
+- **HEAD:** ветка `master`; фича «Автоимпорт расписания ТУСУР» слита, поверх — фикс запуска реального MCP.
 - **Рабочее дерево:** чистое, кроме несвязанных `data/lectures.db` (modified) и `data/backups/*.sqlite` (untracked) — их не трогать.
-- **Гейты:** `npm run build` чист · `npm test` = **165** (28 файлов) · `npm run lint` = 65 (старый baseline, дельта 0) · prettier по файлам фичи чист.
+- **Гейты:** `npm run build` чист · `npm test` = **175** (28 файлов) · `npm run lint` = 65 (старый baseline, дельта 0) · prettier по файлам фичи чист.
 
 ## Документы (источник истины)
 
@@ -54,6 +54,14 @@
 - Наш `SdoMcpClient.resolveOnlineLecture` (`src/core/mcp-client.ts`) теперь вызывает его через `client.callTool({ name: 'resolve_online_lecture', arguments: input })` и разбирает `content[].text` как JSON. Контракт типов совпадает: `resolved{ course:{id,name,url?}, module:{id,name,courseUrl,activityUrl,type} } | ambiguous{candidates} | not_found | auth_required`.
 - Вход в SDO — по storage state (`SDO_AUTH_STATE_PATH`), без пароля; при отсутствии/истечении сессии инструмент возвращает `auth_required`.
 - **Известный долг:** остальные методы `SdoMcpClient` (`authenticate`, `listCourses`, `findBbbActivity`, `getBbbUrl`) собраны под несуществующую схему `sdo/*` и с реальным сервером не совместимы. Импорт их не использует (`resolveOnlineLecture` самодостаточен), но старый поток run/BBB по ним работать не будет — их нужно перевести на реальные инструменты (`check_sdo_auth`, `list_courses`, `find_course_module`, `get_assignment_details`, …).
+
+## Запуск реального MCP-сервера (сделано)
+
+- `loadMcpConfig` (`src/config/mcp-config.ts`) разбирает `SDO_MCP_SERVER_PATH` как **командную строку** (`splitCommandLine`: executable + args, поддержка кавычек); читает `SDO_MCP_SERVER_CWD`; `MCP_TIMEOUT_MS` как fallback для `SDO_MCP_CONNECTION_TIMEOUT`.
+- `collectServerEnv` форвардит серверу только нужные переменные: `SDO_*`, `MCP_*`, `BBB_*`, `TUSUR_*`, `HEADLESS` плюс GUI-переменные (`DISPLAY`, `WAYLAND_DISPLAY`, `XDG_*`, `XAUTHORITY`, `DBUS_SESSION_BUS_ADDRESS`).
+- `StdioClientTransport` получает `args`/`cwd`/`env` (раньше всегда `args: []` и дефолтное окружение).
+- `src/cli/index.ts` грузит `.env` через `process.loadEnvFile('.env')` (отсутствие файла — ок); шаблон — `.env.example`.
+- `playwright-fetcher.ts` при `content-type: application/json` возвращает сырое тело ответа, а не обёртку JSON-viewer'а Chromium (нужно для `course_links`).
 
 ## Что ещё НЕ сделано
 
