@@ -90,12 +90,29 @@ function buildDate(header: string, year: number): string | undefined {
 }
 
 function readTimes(cell: Element): { start: string; end: string } {
-  const spans = Array.from(cell.children).filter(
-    (child) => child.tagName.toLowerCase() === 'span',
-  );
-  const start = spans[0]?.textContent?.trim() ?? '';
-  const end = spans[1]?.textContent?.trim() ?? '';
+  const times = Array.from(cell.children)
+    .filter((child) => child.tagName.toLowerCase() === 'span')
+    .map((child) => child.textContent?.trim() ?? '')
+    .filter((text) => /^\d{1,2}:\d{2}$/.test(text));
+  const start = times[0] ?? '';
+  const end = times[1] ?? '';
   return { start, end };
+}
+
+function isOnlineLesson(training: Element): boolean {
+  if (/ЭИОС/i.test(training.textContent ?? '')) {
+    return true;
+  }
+
+  return Array.from(
+    training.querySelectorAll('[title], [data-original-title]'),
+  ).some((element) => {
+    const title =
+      element.getAttribute('title') ??
+      element.getAttribute('data-original-title') ??
+      '';
+    return /ЭИОС/i.test(title);
+  });
 }
 
 export function parseLessons(
@@ -133,7 +150,14 @@ export function parseLessons(
       continue;
     }
 
+    let slotTimes: { start: string; end: string } = { start: '', end: '' };
+
     for (const cell of cells.slice(1)) {
+      const ownTimes = readTimes(cell);
+      if (ownTimes.start !== '' && ownTimes.end !== '') {
+        slotTimes = ownTimes;
+      }
+
       const training = cell.querySelector('.training');
       if (!training) {
         continue;
@@ -163,8 +187,9 @@ export function parseLessons(
       const auditoriums =
         training.querySelector('.auditoriums')?.textContent?.trim() ?? '';
       const room = auditoriums.length > 0 ? auditoriums : undefined;
-      const online = /ЭИОС/i.test(training.textContent ?? '');
-      const { start, end } = readTimes(cell);
+      const online = isOnlineLesson(training);
+      const { start, end } =
+        ownTimes.start !== '' && ownTimes.end !== '' ? ownTimes : slotTimes;
 
       lessons.push({
         lessonId,
