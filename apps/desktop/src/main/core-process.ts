@@ -7,6 +7,13 @@ import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 
 export const REQUEST_TIMEOUT_MS = 120_000;
+
+// Manual SSO can take up to the provider's five-minute poll window, which
+// exceeds the normal RPC timeout. Exempt it from the bridge timeout and rely
+// on `onboarding.changed` push events (and the worker's own poll deadline)
+// instead; 0 disables the timer.
+export const MANUAL_SSO_REQUEST_TIMEOUT_MS = 0;
+
 const REQUEST_IN_FLIGHT_MESSAGE =
   'Предыдущий запрос ещё выполняется. Дождитесь ответа.';
 const REQUEST_TIMEOUT_MESSAGE = 'Истекло время ожидания ответа ядра.';
@@ -42,6 +49,8 @@ interface Pending<T> {
 export class CoreProcess {
   private child: CoreChild | undefined;
   private status: CoreStatus = 'idle';
+  private ready = false;
+  private readonly queued: MainCommand[] = [];
   private lastState: OnboardingState = { phase: 'welcome' };
   private pendingState: Pending<OnboardingState> | undefined;
   private pendingLogin: Pending<LoginOutcome> | undefined;
@@ -64,6 +73,7 @@ export class CoreProcess {
       return this.status;
     }
     this.setStatus('starting');
+    this.ready = false;
     const child = this.options.fork(this.options.entryPath, [
       this.options.userDataDir,
     ]);
@@ -73,6 +83,8 @@ export class CoreProcess {
     });
     child.on('exit', () => {
       this.child = undefined;
+      this.ready = false;
+      this.queued.length = 0;
       this.rejectPending('Процесс ядра неожиданно завершился.');
       if (this.status !== 'stopped') {
         this.setStatus('error');
@@ -82,13 +94,15 @@ export class CoreProcess {
         });
       }
     });
-    this.setStatus('running');
+    // Status becomes `running` only once the worker confirms `host.ready`.
     return this.status;
   }
 
   stop(): CoreStatus {
     const child = this.child;
     this.child = undefined;
+    this.ready = false;
+    this.queued.length = 0;
     this.rejectPending('Процесс ядра остановлен.');
     this.setStatus('stopped');
     child?.kill();
@@ -107,12 +121,18 @@ export class CoreProcess {
 
   login(input: LoginInput): Promise<LoginOutcome> {
     this.ensureStarted();
-    return this.requestLogin({ type: 'onboarding.login', input });
+    return this.requestLogin(
+      { type: 'onboarding.login', input },
+      REQUEST_TIMEOUT_MS,
+    );
   }
 
   openManualSso(): Promise<LoginOutcome> {
     this.ensureStarted();
-    return this.requestLogin({ type: 'onboarding.openManualSso' });
+    return this.requestLogin(
+      { type: 'onboarding.openManualSso' },
+      MANUAL_SSO_REQUEST_TIMEOUT_MS,
+    );
   }
 
   private ensureStarted(): void {
@@ -126,26 +146,39 @@ export class CoreProcess {
       return Promise.reject(new Error(REQUEST_IN_FLIGHT_MESSAGE));
     }
     return new Promise<OnboardingState>((resolve, reject) => {
-      const pending = this.createPending(resolve, reject, () => {
-        if (this.pendingState === pending) {
-          this.pendingState = undefined;
-        }
-      });
+      const pending = this.createPending(
+        resolve,
+        reject,
+        () => {
+          if (this.pendingState === pending) {
+            this.pendingState = undefined;
+          }
+        },
+        REQUEST_TIMEOUT_MS,
+      );
       this.pendingState = pending;
       this.post(command);
     });
   }
 
-  private requestLogin(command: MainCommand): Promise<LoginOutcome> {
+  private requestLogin(
+    command: MainCommand,
+    timeoutMs: number,
+  ): Promise<LoginOutcome> {
     if (this.pendingLogin) {
       return Promise.reject(new Error(REQUEST_IN_FLIGHT_MESSAGE));
     }
     return new Promise<LoginOutcome>((resolve, reject) => {
-      const pending = this.createPending(resolve, reject, () => {
-        if (this.pendingLogin === pending) {
-          this.pendingLogin = undefined;
-        }
-      });
+      const pending = this.createPending(
+        resolve,
+        reject,
+        () => {
+          if (this.pendingLogin === pending) {
+            this.pendingLogin = undefined;
+          }
+        },
+        timeoutMs,
+      );
       this.pendingLogin = pending;
       this.post(command);
     });
@@ -155,22 +188,28 @@ export class CoreProcess {
     resolve: (value: T) => void,
     reject: (error: Error) => void,
     clear: () => void,
+    timeoutMs: number,
   ): Pending<T> {
     let settled = false;
-    const timer = setTimeout(() => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      clear();
-      reject(new Error(REQUEST_TIMEOUT_MESSAGE));
-    }, REQUEST_TIMEOUT_MS);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        if (settled) {
+          return;
+        }
+        settled = true;
+        clear();
+        reject(new Error(REQUEST_TIMEOUT_MESSAGE));
+      }, timeoutMs);
+    }
     const settle = (): boolean => {
       if (settled) {
         return false;
       }
       settled = true;
-      clearTimeout(timer);
+      if (timer) {
+        clearTimeout(timer);
+      }
       clear();
       return true;
     };
@@ -189,11 +228,27 @@ export class CoreProcess {
   }
 
   private post(command: MainCommand): void {
+    if (!this.ready) {
+      this.queued.push(command);
+      return;
+    }
     this.child?.postMessage(command);
+  }
+
+  private flushQueue(): void {
+    const commands = this.queued.splice(0, this.queued.length);
+    for (const command of commands) {
+      this.child?.postMessage(command);
+    }
   }
 
   private handleEvent(event: HostEvent): void {
     switch (event.type) {
+      case 'host.ready':
+        this.ready = true;
+        this.setStatus('running');
+        this.flushQueue();
+        return;
       case 'onboarding.changed':
         this.lastState = event.state;
         this.callbacks.onChanged(event.state);

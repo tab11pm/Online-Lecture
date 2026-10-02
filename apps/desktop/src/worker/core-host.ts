@@ -42,6 +42,9 @@ export class CoreHost {
     this.transport.onMessage((command) => {
       void this.handle(command);
     });
+    // Handshake: the transport is wired and can accept commands, so tell the
+    // host it is safe to flush anything it queued before this point.
+    this.transport.post({ type: 'host.ready' });
     this.machine.start();
   }
 

@@ -42,7 +42,7 @@ function createFakeChild() {
   };
 }
 
-function createProcess() {
+function createProcess({ autoReady = true } = {}) {
   const fake = createFakeChild();
   const onChanged = vi.fn();
   const onStatusChanged = vi.fn();
@@ -55,6 +55,10 @@ function createProcess() {
     },
     { onChanged, onStatusChanged, onNotification },
   );
+  if (autoReady) {
+    core.start();
+    fake.emitMessage({ type: 'host.ready' });
+  }
   return { core, onChanged, onStatusChanged, onNotification, ...fake };
 }
 
@@ -210,5 +214,52 @@ describe('CoreProcess request bridge', () => {
     await expect(pending).rejects.toThrow('завершился');
     expect(core.getStatus()).toBe('error');
     expect(onStatusChanged).toHaveBeenCalledWith('error');
+  });
+
+  it('queues commands until host.ready and only then becomes running', async () => {
+    const { core, emitMessage, posted, onStatusChanged } = createProcess({
+      autoReady: false,
+    });
+
+    const pending = core.checkSession();
+    expect(core.getStatus()).toBe('starting');
+    expect(posted).toHaveLength(0);
+    expect(onStatusChanged).not.toHaveBeenCalledWith('running');
+
+    emitMessage({ type: 'host.ready' });
+
+    expect(core.getStatus()).toBe('running');
+    expect(onStatusChanged).toHaveBeenCalledWith('running');
+    expect(
+      posted.filter((command) => command.type === 'onboarding.checkSession'),
+    ).toHaveLength(1);
+
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'session_ready' },
+    });
+    await expect(pending).resolves.toEqual({ phase: 'session_ready' });
+  });
+
+  it('exempts manual SSO from the RPC timeout', async () => {
+    vi.useFakeTimers();
+    const { core, emitMessage } = createProcess();
+
+    const pending = core.openManualSso();
+    let settled = false;
+    void pending.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS * 2);
+    expect(settled).toBe(false);
+
+    emitMessage({ type: 'onboarding.loginResult', outcome: { ok: true } });
+    await expect(pending).resolves.toEqual({ ok: true });
   });
 });
