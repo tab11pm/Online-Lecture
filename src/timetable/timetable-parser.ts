@@ -1,5 +1,7 @@
-import { JSDOM } from 'jsdom';
+import { JSDOM, VirtualConsole } from 'jsdom';
 import type { ParsedLesson } from './types.js';
+
+const domConsole = new VirtualConsole();
 
 export class ScheduleParseError extends Error {
   constructor(message = 'Schedule table not found') {
@@ -37,7 +39,7 @@ const MONTHS: Record<string, string> = {
 };
 
 export function discoverMyScheduleHref(html: string): string | undefined {
-  const { document } = new JSDOM(html).window;
+  const { document } = new JSDOM(html, { virtualConsole: domConsole }).window;
 
   for (const anchor of Array.from(document.querySelectorAll('a'))) {
     const text = anchor.textContent ?? '';
@@ -108,8 +110,8 @@ function isOnlineLesson(training: Element): boolean {
     training.querySelectorAll('[title], [data-original-title]'),
   ).some((element) => {
     const title =
-      element.getAttribute('title') ??
-      element.getAttribute('data-original-title') ??
+      element.getAttribute('title') ||
+      element.getAttribute('data-original-title') ||
       '';
     return /ЭИОС/i.test(title);
   });
@@ -119,7 +121,7 @@ export function parseLessons(
   html: string,
   options: { year: number },
 ): ParsedLesson[] {
-  const { document } = new JSDOM(html).window;
+  const { document } = new JSDOM(html, { virtualConsole: domConsole }).window;
 
   const table = Array.from(document.querySelectorAll('table')).find(
     (candidate) => {
@@ -177,9 +179,12 @@ export function parseLessons(
       }
 
       const disciplineEl = training.querySelector('.discipline');
-      const abbr = training.querySelector('abbr[title]');
+      const abbr = disciplineEl?.querySelector(
+        '[title], [data-original-title]',
+      );
       const discipline =
         abbr?.getAttribute('title')?.trim() ||
+        abbr?.getAttribute('data-original-title')?.trim() ||
         disciplineEl?.textContent?.trim() ||
         '';
 
