@@ -140,6 +140,29 @@ describe('CoreHost', () => {
     });
   });
 
+  it('redacts a bare host without a scheme in host.error', async () => {
+    const { transport, posted, send } = fakeTransport();
+    const host = new CoreHost(transport, {
+      paths,
+      machine: machine({
+        checkSession: vi
+          .fn()
+          .mockRejectedValue(new Error('failed at bbb2.tusur.ru/b/abc')),
+      }),
+    });
+    host.start();
+
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+
+    const error = posted.find(
+      (event): event is Extract<HostEvent, { type: 'host.error' }> =>
+        event.type === 'host.error',
+    );
+    expect(error?.message).not.toContain('bbb2.tusur.ru');
+    expect(error?.message).not.toContain('abc');
+  });
+
   it('posts a redacted host.error when a command fails', async () => {
     const { transport, posted, send } = fakeTransport();
     const host = new CoreHost(transport, {
