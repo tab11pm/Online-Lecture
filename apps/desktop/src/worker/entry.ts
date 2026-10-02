@@ -1,6 +1,8 @@
 import { createAppPaths } from '../shared/paths.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import { CoreHost, type HostTransport } from './core-host.js';
+import type { SessionProvider } from './session-provider.js';
+import { FakeSessionProvider } from './session-provider.fake.js';
 
 interface ParentPortMessageEvent {
   data: unknown;
@@ -40,4 +42,12 @@ const transport: HostTransport = {
   },
 };
 
-new CoreHost(transport, { paths: createAppPaths(userDataDir) }).start();
+const provider: SessionProvider | undefined =
+  process.env.ONLINE_LECTURE_FAKE_SESSION === '1'
+    ? new FakeSessionProvider()
+    : undefined;
+
+new CoreHost(transport, {
+  paths: createAppPaths(userDataDir),
+  provider,
+}).start();
