@@ -1,4 +1,4 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
 export interface EncryptionBackend {
@@ -20,6 +20,15 @@ interface StoredSecret {
 }
 
 const BASE64_PATTERN = /^[A-Za-z0-9+/]*={0,2}$/;
+
+function isEperm(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'EPERM'
+  );
+}
 
 function parseStoredSecret(raw: string): StoredSecret | undefined {
   let parsed: unknown;
@@ -64,6 +73,15 @@ const SecretStore = class SecretStoreImpl implements SecretStore {
       encoding: 'utf8',
       mode: 0o600,
     });
+    if (process.platform !== 'win32') {
+      try {
+        await chmod(this.filePath, 0o600);
+      } catch (error) {
+        if (!isEperm(error)) {
+          throw error;
+        }
+      }
+    }
   }
 
   async load(): Promise<string | undefined> {

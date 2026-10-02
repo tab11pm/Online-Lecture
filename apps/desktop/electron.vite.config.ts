@@ -15,6 +15,10 @@ export default defineConfig({
     build: {
       rollupOptions: {
         external,
+        input: {
+          index: fileURLToPath(new URL('src/main/index.ts', import.meta.url)),
+          entry: fileURLToPath(new URL('src/worker/entry.ts', import.meta.url)),
+        },
       },
     },
   },
