@@ -3,14 +3,17 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "workspaces": [
+    "apps/*"
+  ],
   "scripts": {
-    "build": "tsc --noEmit",
+    "build": "tsc --noEmit && npm run typecheck -w @online-lecture/desktop",
     "cli": "tsx src/cli/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "lint": "eslint .",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests && npm test -w @online-lecture/desktop"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0",

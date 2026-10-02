@@ -1,6 +1,8 @@
 .worktrees/
 node_modules/
 dist/
+apps/*/out
+apps/*/dist
 coverage/
 openspec/
 SPEC.md

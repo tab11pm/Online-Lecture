@@ -5,6 +5,13 @@ export default tseslint.config(
   js.configs.recommended,
   ...tseslint.configs.recommended,
   {
-    ignores: ['dist/', 'coverage/', 'node_modules/', '.worktrees/'],
+    ignores: [
+      'dist/',
+      'coverage/',
+      'node_modules/',
+      '.worktrees/',
+      'apps/*/out',
+      'apps/*/dist',
+    ],
   },
 );
