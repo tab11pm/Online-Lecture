@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, ipcMain } from 'electron';
+import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
 import { CHANNELS } from '../shared/ipc-contract.js';
 import type { AppInfo, LoginInput } from '../shared/ipc-contract.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
@@ -59,16 +59,14 @@ void app.whenReady().then(async () => {
     {
       entryPath: fileURLToPath(new URL('./entry.js', import.meta.url)),
       userDataDir: paths.root,
+      fork: (entryPath, args) => utilityProcess.fork(entryPath, args),
     },
     {
       onChanged: (state) => broadcast(CHANNELS.onboarding.changed, state),
       onStatusChanged: (status) =>
         broadcast(CHANNELS.core.statusChanged, status),
-      onNotification: (message) =>
-        broadcast(CHANNELS.core.notification, {
-          level: 'error',
-          message,
-        }),
+      onNotification: (notification) =>
+        broadcast(CHANNELS.core.notification, notification),
     },
   );
   const appCore = core;

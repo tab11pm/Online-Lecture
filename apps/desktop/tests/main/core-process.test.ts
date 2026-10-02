@@ -1,0 +1,214 @@
+import { describe, it, expect, vi, afterEach } from 'vitest';
+import {
+  CoreProcess,
+  REQUEST_TIMEOUT_MS,
+  type CoreChild,
+} from '../../src/main/core-process.js';
+import type { HostEvent, MainCommand } from '../../src/shared/host-protocol.js';
+
+type Listener = (...args: unknown[]) => void;
+
+function createFakeChild() {
+  const posted: MainCommand[] = [];
+  const messageListeners: Listener[] = [];
+  const exitListeners: Listener[] = [];
+  const child: CoreChild = {
+    on(event, listener) {
+      if (event === 'message') {
+        messageListeners.push(listener);
+      } else if (event === 'exit') {
+        exitListeners.push(listener);
+      }
+      return child;
+    },
+    postMessage(message) {
+      posted.push(message as MainCommand);
+    },
+    kill: () => true,
+  };
+  return {
+    child,
+    posted,
+    emitMessage: (event: HostEvent): void => {
+      for (const listener of messageListeners) {
+        listener(event);
+      }
+    },
+    emitExit: (code = 0): void => {
+      for (const listener of exitListeners) {
+        listener(code);
+      }
+    },
+  };
+}
+
+function createProcess() {
+  const fake = createFakeChild();
+  const onChanged = vi.fn();
+  const onStatusChanged = vi.fn();
+  const onNotification = vi.fn();
+  const core = new CoreProcess(
+    {
+      entryPath: '/entry.js',
+      userDataDir: '/data',
+      fork: () => fake.child,
+    },
+    { onChanged, onStatusChanged, onNotification },
+  );
+  return { core, onChanged, onStatusChanged, onNotification, ...fake };
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function settleWithin<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | 'timeout'> {
+  return Promise.race([
+    promise,
+    new Promise<'timeout'>((resolve) => {
+      setTimeout(() => resolve('timeout'), ms);
+    }),
+  ]);
+}
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe('CoreProcess request bridge', () => {
+  it('rejects a second concurrent state request instead of overwriting the first', async () => {
+    const { core, emitMessage, posted } = createProcess();
+
+    const first = core.checkSession();
+    const second = core.checkSession();
+
+    const outcome = await Promise.race([
+      second.then(
+        () => 'resolved',
+        (error: unknown) => `rejected:${errorMessage(error)}`,
+      ),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve('timeout'), 50);
+      }),
+    ]);
+
+    expect(outcome).toContain('выполняется');
+    expect(
+      posted.filter((command) => command.type === 'onboarding.checkSession'),
+    ).toHaveLength(1);
+
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'session_ready' },
+    });
+    await expect(first).resolves.toEqual({ phase: 'session_ready' });
+  });
+
+  it('clears the pending slot on timeout so a later request is accepted', async () => {
+    vi.useFakeTimers();
+    const { core, emitMessage, posted } = createProcess();
+
+    const first = core.checkSession();
+    const firstOutcome = first.then(
+      () => 'resolved',
+      (error: unknown) => errorMessage(error),
+    );
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+    expect(await firstOutcome).toContain('Истекло время');
+
+    const second = core.checkSession();
+    expect(
+      posted.filter((command) => command.type === 'onboarding.checkSession'),
+    ).toHaveLength(2);
+
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'credentials' },
+    });
+    await expect(settleWithin(second, 50)).resolves.toEqual({
+      phase: 'credentials',
+    });
+  });
+
+  it('does not let a late event re-resolve a settled request', async () => {
+    const { core, emitMessage } = createProcess();
+
+    const pending = core.getState();
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'session_ready' },
+    });
+    await expect(pending).resolves.toEqual({ phase: 'session_ready' });
+
+    expect(() =>
+      emitMessage({
+        type: 'onboarding.changed',
+        state: { phase: 'credentials' },
+      }),
+    ).not.toThrow();
+    expect(core.getLastState()).toEqual({ phase: 'credentials' });
+  });
+
+  it('keeps changed push events flowing with no request outstanding', () => {
+    const { core, emitMessage, onChanged } = createProcess();
+
+    core.start();
+    emitMessage({ type: 'onboarding.changed', state: { phase: 'welcome' } });
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'credentials' },
+    });
+
+    expect(onChanged).toHaveBeenCalledTimes(2);
+    expect(core.getLastState()).toEqual({ phase: 'credentials' });
+  });
+
+  it('rejects a second concurrent login request instead of overwriting the first', async () => {
+    const { core, emitMessage } = createProcess();
+
+    const first = core.login({ username: 'student', password: 'secret' });
+    const second = core.login({ username: 'student', password: 'secret' });
+
+    const outcome = await Promise.race([
+      second.then(
+        () => 'resolved',
+        (error: unknown) => `rejected:${errorMessage(error)}`,
+      ),
+      new Promise<string>((resolve) => {
+        setTimeout(() => resolve('timeout'), 50);
+      }),
+    ]);
+
+    expect(outcome).toContain('выполняется');
+
+    emitMessage({ type: 'onboarding.loginResult', outcome: { ok: true } });
+    await expect(first).resolves.toEqual({ ok: true });
+  });
+
+  it('rejects the outstanding request and notifies on host.error', async () => {
+    const { core, emitMessage, onNotification } = createProcess();
+
+    const pending = core.getState();
+    emitMessage({ type: 'host.error', message: 'boom' });
+
+    await expect(pending).rejects.toThrow('boom');
+    expect(onNotification).toHaveBeenCalledWith({
+      level: 'error',
+      message: 'boom',
+    });
+  });
+
+  it('rejects the outstanding request when the worker exits', async () => {
+    const { core, emitExit, onStatusChanged } = createProcess();
+
+    const pending = core.getState();
+    emitExit(1);
+
+    await expect(pending).rejects.toThrow('завершился');
+    expect(core.getStatus()).toBe('error');
+    expect(onStatusChanged).toHaveBeenCalledWith('error');
+  });
+});
