@@ -3,6 +3,7 @@ import { dirname } from 'node:path';
 
 export interface AppSettings {
   autostart: boolean;
+  username?: string;
 }
 
 export interface SettingsStore {
@@ -23,7 +24,11 @@ function parseSettings(raw: string): AppSettings | undefined {
     return undefined;
   }
   const record = parsed as Record<string, unknown>;
-  return { autostart: record['autostart'] === true };
+  const settings: AppSettings = { autostart: record['autostart'] === true };
+  if (typeof record['username'] === 'string') {
+    settings.username = record['username'];
+  }
+  return settings;
 }
 
 const SettingsStore = class SettingsStoreImpl implements SettingsStore {
@@ -51,6 +56,9 @@ const SettingsStore = class SettingsStoreImpl implements SettingsStore {
     const next: AppSettings = { ...current };
     if (typeof patch.autostart === 'boolean') {
       next.autostart = patch.autostart;
+    }
+    if (typeof patch.username === 'string') {
+      next.username = patch.username;
     }
     await mkdir(dirname(this.filePath), { recursive: true });
     await writeFile(this.filePath, JSON.stringify(next, null, 2), 'utf8');
