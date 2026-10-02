@@ -8,6 +8,7 @@ export type MainCommand =
   | { type: 'onboarding.getState' };
 
 export type HostEvent =
+  | { type: 'host.ready' }
   | { type: 'onboarding.changed'; state: OnboardingState }
   | { type: 'onboarding.loginResult'; outcome: LoginOutcome }
   | { type: 'host.error'; message: string };
