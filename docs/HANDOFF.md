@@ -5,9 +5,9 @@
 ## Состояние репозитория
 
 - **Репозиторий:** `/home/tabek/D/tusur/online-lecture` (Node/TypeScript, ESM, vitest, better-sqlite3, Playwright, luxon, zod, commander).
-- **HEAD:** ветка `master`; фича «Автоимпорт расписания ТУСУР» слита, поверх — фикс запуска реального MCP.
+- **HEAD:** ветка `master`; фича «Автоимпорт расписания ТУСУР» слита, поверх — фикс запуска реального MCP и slice 1 Electron-приложения (`apps/desktop`).
 - **Рабочее дерево:** чистое, кроме несвязанных `data/lectures.db` (modified) и `data/backups/*.sqlite` (untracked) — их не трогать.
-- **Гейты:** `npm run build` чист · `npm test` = **172** (28 файлов) · `npm run lint` = 58 (baseline был 65; новые/изменённые файлы чистые по prettier) · prettier по файлам фичи чист.
+- **Гейты:** `npm run build` чист (core tsc + desktop typecheck) · `npm test` = **172** (28 файлов, core) + **65** desktop (1 E2E пропущен без `CI_ELECTRON_E2E=1`) · `npm run lint` = 58 (baseline был 65; новые/изменённые файлы чистые по prettier) · `prettier --check apps/desktop` и `eslint apps/desktop` чисты.
 
 ## Документы (источник истины)
 
@@ -39,6 +39,29 @@
 - `src/persistence/job-repository.ts` — `listAll`/`delete`.
 - `src/cli/commands.ts` — команда `import` + `CliDependencies` (инъекция фетчера/резолвера для тестов).
 
+## Desktop-приложение (`apps/desktop`) — slice 1 сделано
+
+Windows-приложение (Electron + React/TS) на локальном ядре. Slice 1 закрывает onboarding и обвязку окна/трея:
+
+- `src/main/` — главный процесс: окно (`window.ts`), трей (`tray.ts`), автозапуск (`autostart.ts`), IPC (`ipc.ts`), `CoreProcess` (utility process), `SecretStore` (DPAPI через `safeStorage` + явный fallback), `SettingsStore`, `paths.ts`.
+- `src/preload/index.ts` — узкий typed-мост `window.desktop` (contextIsolation, sandbox: false, без node в renderer).
+- `src/renderer/src/` — React UI onboarding (welcome → credentials → authenticating → manual_sso → session_ready / failed).
+- `src/worker/` — локальное ядро: `CoreHost`, `OnboardingMachine`, `TusurSessionProvider` (Playwright, ленивая загрузка), `entry.ts`; `session-provider.fake.ts` — in-memory провайдер для E2E.
+- `src/shared/` — типизированные IPC-контракт, протокол ядра, onboarding-состояния, `createAppPaths`.
+
+Команды (из корня, workspace):
+
+```bash
+npm run dev -w @online-lecture/desktop        # electron-vite dev
+npm run build -w @online-lecture/desktop      # сборка в out/
+npm run typecheck -w @online-lecture/desktop  # tsc --noEmit (node + web)
+npm test -w @online-lecture/desktop           # vitest без GUI
+```
+
+E2E (`apps/desktop/tests/e2e/onboarding.test.ts`) — vitest + Playwright `_electron`, поднимает `out/main/index.js` с `ONLINE_LECTURE_FAKE_SESSION=1`, проходит приветствие → форму → «Сессия активна». По умолчанию пропускается; включается `CI_ELECTRON_E2E=1`.
+
+Пути данных (Windows): `%LOCALAPPDATA%/OnlineLecture/` → `data/lectures.db`, `auth.json`, `credentials.enc`, `settings.json`, `logs/`. Ничего из этого в git не попадает.
+
 ## Ключевые инварианты (не ломать)
 
 - Группа определяется автоматически по ссылке «Мое расписание»; факультет/группа у пользователя не спрашиваются.
@@ -67,10 +90,10 @@
 
 ## Что ещё НЕ сделано
 
-1. **Фаза 3 (Electron):** onboarding (форма логин/пароль + запасное видимое окно SSO), хранение пароля (DPAPI), список/правки/«Перенести», трей, автозапуск.
-2. **Фаза 4:** Windows-упаковка одним установщиком + E2E.
-3. **Живой smoke:** парсинг можно проверить с `auth.json`; полный импорт с созданием заданий требует установленного `sdo_mcp` и `SDO_MCP_SERVER_PATH`, а также session storage state в `SDO_AUTH_STATE_PATH`.
-
+1. **Slice 2 Electron:** список лекций/правки/«Перенести» в UI, уведомления/журнал, интеграция импорта в приложение.
+2. **Фаза 4:** Windows-упаковка одним установщиком (electron-builder) и реальная проверка на Windows.
+3. **Windows-верификация (вручную):** реальный SSO-вход, DPAPI-шифрование пароля, автозапуск через реестр, поведение трея — см. чек-лист ниже; в песочнице проверялось только с фиктивным провайдером.
+4. **Живой smoke:** парсинг можно проверить с `auth.json`; полный импорт с созданием заданий требует установленного `sdo_mcp` и `SDO_MCP_SERVER_PATH`, а также session storage state в `SDO_AUTH_STATE_PATH`.
 
 ## Как проверить на Windows
 
@@ -79,6 +102,14 @@ npm install
 npx playwright install chromium
 npm run build
 npm test
+
+# desktop: сборка и запуск
+npm run build -w @online-lecture/desktop
+npm run dev -w @online-lecture/desktop
+
+# desktop E2E с фиктивной сессией (без реального SSO):
+npm run build -w @online-lecture/desktop
+$env:CI_ELECTRON_E2E="1"; npm test -w @online-lecture/desktop -- onboarding
 
 # реальный парсинг расписания:
 npx playwright codegen --save-storage=./auth.json https://timetable.tusur.ru/   # войти и закрыть окно
@@ -93,10 +124,18 @@ npm run cli -- import --db ./data/lectures.db --auth-state ./auth.json
 
 `--auth-state` нужен нашему timetable-фетчеру; `SDO_AUTH_STATE_PATH` — самому MCP-серверу (та же сессия).
 
+### Ручной чек-лист desktop (Windows)
+
+- [ ] Реальный SSO: вход по логину/паролю создаёт `%LOCALAPPDATA%/OnlineLecture/auth.json`; при капче/2FA открывается видимое окно SSO.
+- [ ] DPAPI: `credentials.enc` расшифровывается на этой же учётке; при переносе на другую машину пароль не читается (ожидаемо).
+- [ ] Автозапуск: переключатель в UI меняет запись автозапуска и `settings.json`.
+- [ ] Трей: закрытие окна сворачивает в трей, «Выход» завершает процесс и ядро.
+- [ ] Данные лежат вне репозитория (`%LOCALAPPDATA%/OnlineLecture/`), секреты не попадают в логи.
+
 Тестовый живой пример группы: `fvs/574-1`; онлайн-пары — РМП2 (SDO id `22413`) и РВП (`22414`).
 
 ## Оговорки
 
-- SSO-вход/хранение пароля, Electron и упаковка сознательно вне фаз 1–2.
+- Slice 1 desktop готов и покрыт UI/логическими тестами; реальный SSO, DPAPI, автозапуск и трей требуют ручной проверки на Windows (см. чек-лист).
 - Baseline `lint`/`format:check` грязный по всему репозиторию; новые файлы оцениваются по дельте и должны быть чистыми.
 - `data/lectures.db` и бэкапы в git — давняя проблема гигиены, не связана с фичей.
