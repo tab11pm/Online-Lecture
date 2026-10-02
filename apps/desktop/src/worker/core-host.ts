@@ -1,3 +1,4 @@
+import { redactSensitiveText } from '@core/core/redaction.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { AppPaths } from '../shared/paths.js';
@@ -14,11 +15,6 @@ export interface CoreHostDependencies {
   machine?: OnboardingMachine;
   provider?: SessionProvider;
 }
-
-const URL_PATTERN = /https?:\/\/[^\s"'<>]+/giu;
-const COOKIE_HEADER_PATTERN = /(cookie\s*:\s*)[^\r\n;]+/giu;
-const SENSITIVE_KEY_PATTERN =
-  /\b(sessionToken|sesskey|token|authorization)=[^\s&;]+/giu;
 
 export class CoreHost {
   private readonly paths: AppPaths;
@@ -99,7 +95,7 @@ export class CoreHost {
     } catch (error) {
       this.transport.post({
         type: 'host.error',
-        message: redact(errorMessage(error)),
+        message: redactSensitiveText(errorMessage(error)),
       });
     }
   }
@@ -158,11 +154,4 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return typeof error === 'string' ? error : 'Не удалось выполнить операцию.';
-}
-
-function redact(message: string): string {
-  return message
-    .replace(URL_PATTERN, '[REDACTED_URL]')
-    .replace(COOKIE_HEADER_PATTERN, '$1[REDACTED]')
-    .replace(SENSITIVE_KEY_PATTERN, '$1=[REDACTED]');
 }
