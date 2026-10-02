@@ -74,6 +74,26 @@ describe('timetable parser', () => {
     expect(lessons[0]!.room).toBeUndefined();
   });
 
+  it('detects EIOS and full discipline when the browser moved title to data-original-title', () => {
+    const html =
+      '<table><tbody><tr><td>ср, 30 сент.</td><td><span>13:15</span><span>14:50</span>' +
+      '<div class="training training_type_lecture">' +
+      '<span class="fa fa-info-circle note" title="" data-original-title="реализуется в ЭИОС"></span>' +
+      '<span class="discipline" data-lesson-id="9">' +
+      '<abbr title="" data-original-title="Разработка мобильных приложений-2">РМП2</abbr></span>' +
+      '<span class="kind">Лекция</span><span class="auditoriums"></span>' +
+      '</div></td></tr></tbody></table>';
+
+    const lessons = parseLessons(html, { year: 2026 });
+
+    expect(lessons).toHaveLength(1);
+    expect(lessons[0]).toMatchObject({
+      lessonId: '9',
+      discipline: 'Разработка мобильных приложений-2',
+      online: true,
+    });
+  });
+
   it('reads times from the preceding slot cell when the lesson cell has none', () => {
     const html =
       '<table><tbody><tr><td>ср, 30 сент.</td>' +
