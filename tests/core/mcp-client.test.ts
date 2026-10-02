@@ -14,6 +14,7 @@ vi.mock('@modelcontextprotocol/sdk', () => ({
     connect: vi.fn().mockResolvedValue(undefined),
     close: vi.fn().mockResolvedValue(undefined),
     request: vi.fn(),
+    callTool: vi.fn(),
   })),
   StdioClientTransport: vi.fn().mockImplementation(() => ({})),
 }));
@@ -59,23 +60,74 @@ describe('SdoMcpClient', () => {
   });
 
   describe('resolveOnlineLecture', () => {
-    it('returns the resolver payload from the MCP server', async () => {
+    it('calls the resolve_online_lecture tool and parses the JSON result', async () => {
       const c = new SdoMcpClient(mockConfig);
       const mocked = c as unknown as {
-        client: { request: ReturnType<typeof vi.fn> };
+        client: { callTool: ReturnType<typeof vi.fn> };
       };
       mocked.client = {
-        request: vi.fn().mockResolvedValue({ status: 'not_found' }),
+        callTool: vi.fn().mockResolvedValue({
+          content: [
+            { type: 'text', text: JSON.stringify({ status: 'not_found' }) },
+          ],
+        }),
       };
+
       await expect(
         c.resolveOnlineLecture({
           courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
         }),
       ).resolves.toEqual({ status: 'not_found' });
-      expect(mocked.client.request).toHaveBeenCalledWith(
-        { method: 'sdo/resolveOnlineLecture' },
-        { courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413' },
-      );
+
+      expect(mocked.client.callTool).toHaveBeenCalledWith({
+        name: 'resolve_online_lecture',
+        arguments: {
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+        },
+      });
+    });
+
+    it('parses a resolved payload with course and module', async () => {
+      const c = new SdoMcpClient(mockConfig);
+      const payload = {
+        status: 'resolved',
+        course: { id: '22413', name: 'РМП2' },
+        module: {
+          id: '1',
+          name: 'Онлайн-лекция',
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+          activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+          type: 'lecture',
+        },
+      };
+      const mocked = c as unknown as {
+        client: { callTool: ReturnType<typeof vi.fn> };
+      };
+      mocked.client = {
+        callTool: vi.fn().mockResolvedValue({
+          content: [{ type: 'text', text: JSON.stringify(payload) }],
+        }),
+      };
+
+      await expect(
+        c.resolveOnlineLecture({
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=22413',
+        }),
+      ).resolves.toEqual(payload);
+    });
+
+    it('throws when the tool returns no text content', async () => {
+      const c = new SdoMcpClient(mockConfig);
+      const mocked = c as unknown as {
+        client: { callTool: ReturnType<typeof vi.fn> };
+      };
+      mocked.client = {
+        callTool: vi.fn().mockResolvedValue({ content: [] }),
+      };
+
+      await expect(
+        c.resolveOnlineLecture({ courseQuery: 'РМП2' }),
+      ).rejects.toThrow('Empty resolve_online_lecture response');
     });
   });
 });
