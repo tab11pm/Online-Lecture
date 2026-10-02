@@ -1,4 +1,5 @@
 import { Menu, nativeImage, Tray, type NativeImage } from 'electron';
+import { TRAY_ICON_DATA_URL } from './tray-icon.js';
 
 export interface TrayOptions {
   icon?: NativeImage;
@@ -8,7 +9,9 @@ export interface TrayOptions {
 }
 
 export function createTray(options: TrayOptions): Tray {
-  const tray = new Tray(options.icon ?? nativeImage.createEmpty());
+  const tray = new Tray(
+    options.icon ?? nativeImage.createFromDataURL(TRAY_ICON_DATA_URL),
+  );
   tray.setToolTip(options.tooltip ?? 'Online Lecture');
   tray.setContextMenu(
     Menu.buildFromTemplate([

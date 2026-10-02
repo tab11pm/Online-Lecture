@@ -84,6 +84,8 @@ beforeEach(() => {
   fake.login.mockClear();
   fake.openManualSso.mockClear();
   fake.checkSession.mockClear();
+  vi.mocked(fake.api.app.getInfo).mockClear();
+  vi.mocked(fake.api.app.setAutostart).mockClear();
 });
 
 afterEach(() => {
@@ -158,6 +160,22 @@ describe('onboarding UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Проверить вход' }));
 
     expect(fake.checkSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('toggles autostart through the app bridge', async () => {
+    fake.getState.mockResolvedValue({ phase: 'session_ready' });
+    render(<App />);
+
+    const toggle = await screen.findByRole('checkbox', {
+      name: /запускать при старте/i,
+    });
+    expect(toggle).not.toBeChecked();
+
+    fireEvent.click(toggle);
+
+    await waitFor(() =>
+      expect(fake.api.app.setAutostart).toHaveBeenCalledWith(true),
+    );
   });
 
   it('reacts to onboarding state changes from the bridge', async () => {
