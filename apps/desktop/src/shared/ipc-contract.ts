@@ -1,0 +1,66 @@
+import type { LoginOutcome, OnboardingState } from './onboarding.js';
+
+export interface AppInfo {
+  version: string;
+  autostart: boolean;
+}
+
+export type CoreStatus = 'idle' | 'starting' | 'running' | 'stopped' | 'error';
+
+export type CoreNotificationLevel = 'info' | 'warn' | 'error';
+
+export interface CoreNotification {
+  level: CoreNotificationLevel;
+  message: string;
+}
+
+export interface LoginInput {
+  username: string;
+  password: string;
+}
+
+export const CHANNELS = {
+  onboarding: {
+    getState: 'onboarding:getState',
+    login: 'onboarding:login',
+    openManualSso: 'onboarding:openManualSso',
+    checkSession: 'onboarding:checkSession',
+    changed: 'onboarding:changed',
+  },
+  app: {
+    getInfo: 'app:getInfo',
+    setAutostart: 'app:setAutostart',
+    quit: 'app:quit',
+  },
+  core: {
+    getStatus: 'core:getStatus',
+    start: 'core:start',
+    stop: 'core:stop',
+    statusChanged: 'core:statusChanged',
+    notification: 'core:notification',
+  },
+} as const;
+
+export interface DesktopApi {
+  onboarding: {
+    getState(): Promise<OnboardingState>;
+    login(input: LoginInput): Promise<LoginOutcome>;
+    openManualSso(): Promise<LoginOutcome>;
+    checkSession(): Promise<OnboardingState>;
+    onChanged(listener: (state: OnboardingState) => void): () => void;
+  };
+  app: {
+    getInfo(): Promise<AppInfo>;
+    setAutostart(enabled: boolean): Promise<AppInfo>;
+    quit(): Promise<void>;
+  };
+  core: {
+    getStatus(): Promise<CoreStatus>;
+    start(): Promise<CoreStatus>;
+    stop(): Promise<CoreStatus>;
+    onStatusChanged(listener: (status: CoreStatus) => void): () => void;
+    onNotification(
+      listener: (notification: CoreNotification) => void,
+    ): () => void;
+  };
+}
