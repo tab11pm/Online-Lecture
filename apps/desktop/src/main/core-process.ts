@@ -1,19 +1,37 @@
-import { utilityProcess, type UtilityProcess } from 'electron';
-import type { CoreStatus, LoginInput } from '../shared/ipc-contract.js';
+import type {
+  CoreStatus,
+  LoginInput,
+  CoreNotification,
+} from '../shared/ipc-contract.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 
-const REQUEST_TIMEOUT_MS = 120_000;
+export const REQUEST_TIMEOUT_MS = 120_000;
+const REQUEST_IN_FLIGHT_MESSAGE =
+  'Предыдущий запрос ещё выполняется. Дождитесь ответа.';
+const REQUEST_TIMEOUT_MESSAGE = 'Истекло время ожидания ответа ядра.';
 
 export interface CoreProcessCallbacks {
   onChanged(state: OnboardingState): void;
   onStatusChanged(status: CoreStatus): void;
-  onNotification(message: string): void;
+  onNotification(notification: CoreNotification): void;
+}
+
+/**
+ * Minimal structural view of the Electron `UtilityProcess` used by this bridge.
+ * Kept free of any Electron import so the bridge can be unit-tested with a fake
+ * child; the real `UtilityProcess` satisfies this shape.
+ */
+export interface CoreChild {
+  on(event: string, listener: (...args: unknown[]) => void): unknown;
+  postMessage(message: unknown): void;
+  kill(): boolean;
 }
 
 export interface CoreProcessOptions {
   entryPath: string;
   userDataDir: string;
+  fork(entryPath: string, args: string[]): CoreChild;
 }
 
 interface Pending<T> {
@@ -22,7 +40,7 @@ interface Pending<T> {
 }
 
 export class CoreProcess {
-  private child: UtilityProcess | undefined;
+  private child: CoreChild | undefined;
   private status: CoreStatus = 'idle';
   private lastState: OnboardingState = { phase: 'welcome' };
   private pendingState: Pending<OnboardingState> | undefined;
@@ -46,7 +64,7 @@ export class CoreProcess {
       return this.status;
     }
     this.setStatus('starting');
-    const child = utilityProcess.fork(this.options.entryPath, [
+    const child = this.options.fork(this.options.entryPath, [
       this.options.userDataDir,
     ]);
     this.child = child;
@@ -58,7 +76,10 @@ export class CoreProcess {
       this.rejectPending('Процесс ядра неожиданно завершился.');
       if (this.status !== 'stopped') {
         this.setStatus('error');
-        this.callbacks.onNotification('Процесс ядра неожиданно завершился.');
+        this.callbacks.onNotification({
+          level: 'error',
+          message: 'Процесс ядра неожиданно завершился.',
+        });
       }
     });
     this.setStatus('running');
@@ -101,34 +122,68 @@ export class CoreProcess {
   }
 
   private requestState(command: MainCommand): Promise<OnboardingState> {
+    if (this.pendingState) {
+      return Promise.reject(new Error(REQUEST_IN_FLIGHT_MESSAGE));
+    }
     return new Promise<OnboardingState>((resolve, reject) => {
-      this.pendingState = this.track(resolve, reject);
+      const pending = this.createPending(resolve, reject, () => {
+        if (this.pendingState === pending) {
+          this.pendingState = undefined;
+        }
+      });
+      this.pendingState = pending;
       this.post(command);
     });
   }
 
   private requestLogin(command: MainCommand): Promise<LoginOutcome> {
+    if (this.pendingLogin) {
+      return Promise.reject(new Error(REQUEST_IN_FLIGHT_MESSAGE));
+    }
     return new Promise<LoginOutcome>((resolve, reject) => {
-      this.pendingLogin = this.track(resolve, reject);
+      const pending = this.createPending(resolve, reject, () => {
+        if (this.pendingLogin === pending) {
+          this.pendingLogin = undefined;
+        }
+      });
+      this.pendingLogin = pending;
       this.post(command);
     });
   }
 
-  private track<T>(
+  private createPending<T>(
     resolve: (value: T) => void,
     reject: (error: Error) => void,
+    clear: () => void,
   ): Pending<T> {
+    let settled = false;
     const timer = setTimeout(() => {
-      reject(new Error('Истекло время ожидания ответа ядра.'));
+      if (settled) {
+        return;
+      }
+      settled = true;
+      clear();
+      reject(new Error(REQUEST_TIMEOUT_MESSAGE));
     }, REQUEST_TIMEOUT_MS);
+    const settle = (): boolean => {
+      if (settled) {
+        return false;
+      }
+      settled = true;
+      clearTimeout(timer);
+      clear();
+      return true;
+    };
     return {
       resolve: (value) => {
-        clearTimeout(timer);
-        resolve(value);
+        if (settle()) {
+          resolve(value);
+        }
       },
       reject: (error) => {
-        clearTimeout(timer);
-        reject(error);
+        if (settle()) {
+          reject(error);
+        }
       },
     };
   }
@@ -139,34 +194,28 @@ export class CoreProcess {
 
   private handleEvent(event: HostEvent): void {
     switch (event.type) {
-      case 'onboarding.changed': {
+      case 'onboarding.changed':
         this.lastState = event.state;
         this.callbacks.onChanged(event.state);
-        const pending = this.pendingState;
-        this.pendingState = undefined;
-        pending?.resolve(event.state);
+        this.pendingState?.resolve(event.state);
         return;
-      }
-      case 'onboarding.loginResult': {
-        const pending = this.pendingLogin;
-        this.pendingLogin = undefined;
-        pending?.resolve(event.outcome);
+      case 'onboarding.loginResult':
+        this.pendingLogin?.resolve(event.outcome);
         return;
-      }
       case 'host.error':
-        this.callbacks.onNotification(event.message);
-        this.rejectPending(event.message);
+        this.callbacks.onNotification({
+          level: 'error',
+          message: event.message,
+        });
+        this.pendingState?.reject(new Error(event.message));
+        this.pendingLogin?.reject(new Error(event.message));
         return;
     }
   }
 
   private rejectPending(message: string): void {
-    const statePending = this.pendingState;
-    this.pendingState = undefined;
-    statePending?.reject(new Error(message));
-    const loginPending = this.pendingLogin;
-    this.pendingLogin = undefined;
-    loginPending?.reject(new Error(message));
+    this.pendingState?.reject(new Error(message));
+    this.pendingLogin?.reject(new Error(message));
   }
 
   private setStatus(status: CoreStatus): void {
