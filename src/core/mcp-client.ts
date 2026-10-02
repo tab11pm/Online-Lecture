@@ -1,5 +1,6 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type {
   Credentials,
   Session,
@@ -185,10 +186,29 @@ export class SdoMcpClient implements OnlineLectureResolver {
       throw new Error('MCP client not initialized');
     }
 
-    return (await this.client.request(
-      { method: 'sdo/resolveOnlineLecture' },
-      input as unknown as Parameters<Client['request']>[1],
-    )) as OnlineLectureResolution;
+    const result = (await this.client.callTool({
+      name: 'resolve_online_lecture',
+      arguments: input,
+    })) as CallToolResult;
+
+    const textBlock = result.content.find(
+      (block): block is { type: 'text'; text: string } =>
+        block.type === 'text' && typeof block.text === 'string',
+    );
+
+    if (textBlock === undefined) {
+      throw new Error('Empty resolve_online_lecture response');
+    }
+
+    if (result.isError === true) {
+      throw new Error(`resolve_online_lecture failed: ${textBlock.text}`);
+    }
+
+    try {
+      return JSON.parse(textBlock.text) as OnlineLectureResolution;
+    } catch {
+      throw new Error('Invalid resolve_online_lecture response');
+    }
   }
 
   /**
