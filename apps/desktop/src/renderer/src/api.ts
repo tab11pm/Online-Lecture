@@ -1,6 +1,4 @@
-export interface DesktopApi {
-  ping(): Promise<string>;
-}
+import type { DesktopApi } from '../../shared/ipc-contract.js';
 
 declare global {
   interface Window {
