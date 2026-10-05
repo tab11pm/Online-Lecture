@@ -14,8 +14,6 @@ export const REQUEST_TIMEOUT_MS = 120_000;
 // instead; 0 disables the timer.
 export const MANUAL_SSO_REQUEST_TIMEOUT_MS = 0;
 
-const REQUEST_IN_FLIGHT_MESSAGE =
-  'Предыдущий запрос ещё выполняется. Дождитесь ответа.';
 const REQUEST_TIMEOUT_MESSAGE = 'Истекло время ожидания ответа ядра.';
 
 export interface CoreProcessCallbacks {
@@ -54,6 +52,8 @@ export class CoreProcess {
   private lastState: OnboardingState = { phase: 'welcome' };
   private pendingState: Pending<OnboardingState> | undefined;
   private pendingLogin: Pending<LoginOutcome> | undefined;
+  private stateRequest: Promise<OnboardingState> | undefined;
+  private loginRequest: Promise<LoginOutcome> | undefined;
 
   constructor(
     private readonly options: CoreProcessOptions,
@@ -142,46 +142,68 @@ export class CoreProcess {
   }
 
   private requestState(command: MainCommand): Promise<OnboardingState> {
-    if (this.pendingState) {
-      return Promise.reject(new Error(REQUEST_IN_FLIGHT_MESSAGE));
+    // Coalesce overlapping state reads (React StrictMode double-invokes the
+    // mount effect, and users double-click buttons). Returning the in-flight
+    // promise is correct for these idempotent reads and avoids noisy
+    // "request already in flight" rejections in the IPC layer.
+    if (this.stateRequest) {
+      return this.stateRequest;
     }
-    return new Promise<OnboardingState>((resolve, reject) => {
-      const pending = this.createPending(
-        resolve,
-        reject,
-        () => {
-          if (this.pendingState === pending) {
-            this.pendingState = undefined;
-          }
-        },
-        REQUEST_TIMEOUT_MS,
-      );
-      this.pendingState = pending;
-      this.post(command);
+    let resolve!: (value: OnboardingState) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<OnboardingState>((res, rej) => {
+      resolve = res;
+      reject = rej;
     });
+    const pending = this.createPending(
+      resolve,
+      reject,
+      () => {
+        if (this.pendingState === pending) {
+          this.pendingState = undefined;
+        }
+        if (this.stateRequest === promise) {
+          this.stateRequest = undefined;
+        }
+      },
+      REQUEST_TIMEOUT_MS,
+    );
+    this.pendingState = pending;
+    this.stateRequest = promise;
+    this.post(command);
+    return promise;
   }
 
   private requestLogin(
     command: MainCommand,
     timeoutMs: number,
   ): Promise<LoginOutcome> {
-    if (this.pendingLogin) {
-      return Promise.reject(new Error(REQUEST_IN_FLIGHT_MESSAGE));
+    if (this.loginRequest) {
+      return this.loginRequest;
     }
-    return new Promise<LoginOutcome>((resolve, reject) => {
-      const pending = this.createPending(
-        resolve,
-        reject,
-        () => {
-          if (this.pendingLogin === pending) {
-            this.pendingLogin = undefined;
-          }
-        },
-        timeoutMs,
-      );
-      this.pendingLogin = pending;
-      this.post(command);
+    let resolve!: (value: LoginOutcome) => void;
+    let reject!: (error: Error) => void;
+    const promise = new Promise<LoginOutcome>((res, rej) => {
+      resolve = res;
+      reject = rej;
     });
+    const pending = this.createPending(
+      resolve,
+      reject,
+      () => {
+        if (this.pendingLogin === pending) {
+          this.pendingLogin = undefined;
+        }
+        if (this.loginRequest === promise) {
+          this.loginRequest = undefined;
+        }
+      },
+      timeoutMs,
+    );
+    this.pendingLogin = pending;
+    this.loginRequest = promise;
+    this.post(command);
+    return promise;
   }
 
   private createPending<T>(
