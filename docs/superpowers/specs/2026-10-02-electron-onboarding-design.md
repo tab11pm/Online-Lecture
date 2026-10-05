@@ -100,35 +100,38 @@ welcome -> credentials -> authenticating -> session_ready
                                +-> failed (показ ошибки, возврат в credentials)
 ```
 
-### 6.1 Автоматический вход
+### 6.1 Автоматический вход (делегирование SDO MCP)
+
+Приложение **не реализует логин само**. Единственный источник логики входа и сессии —
+`sdo_mcp`:
 
 1. Renderer отправляет `onboarding.login({ username, password })`.
-2. Main шифрует пароль через `SecretStore` и передаёт plaintext в worker **только в
-   памяти**. Пароль не пишется в логи и не сохраняется в открытом виде.
-3. Worker запускает Chromium (headless) и открывает форму `profile.tusur.ru`.
-4. При успешном входе worker снимает `context.storageState({ path: auth.json })` с правами
-   `0600` и переходит в `session_ready`.
-5. При капче/2FA/неудачном входе worker сигналит `manual_sso`.
+2. Main шифрует пароль через `SecretStore` и передаёт `username`/`password` в worker
+   **только в памяти**. Пароль не пишется в логи и не сохраняется в открытом виде.
+3. Worker запускает сконфигурированный `sdo_mcp` (stdio) с окружением `SDO_USERNAME`,
+   `SDO_PASSWORD`, `SDO_AUTH_STATE_PATH=<auth.json>`, `HEADLESS=true` и вызывает tool
+   `sdo_login`.
+4. MCP сам проходит новый cabinet-SSO (`sdo.tusur.ru/login/index.php` → ссылка
+   «Вход через кабинет ТУСУРа» → `profile.tusur.ru/users/sign_in`) и сохраняет **общую**
+   сессию (SDO + timetable) в `SDO_AUTH_STATE_PATH` (наш `auth.json`).
+5. Успех → `session_ready`; ошибка/капча/2FA → `manual_sso`.
+
+Требуемые изменения в `sdo_mcp` (внесены): `saveAuthState` пишет в `SDO_AUTH_STATE_PATH`
+(fallback `storage/auth.json`) и добавлен tool `sdo_login`.
 
 ### 6.2 Ручной вход (fallback)
 
-Main открывает видимое окно ТУСУР (headful Chromium либо BrowserWindow). Пользователь
-входит сам; после подтверждения входа worker сохраняет storage state в `auth.json`.
-Пароль для этого пути не требуется.
+Worker повторяет `sdo_login` с `HEADLESS=false`: MCP открывает видимое окно Chromium, и
+пользователь завершает SSO. Ограничение: MCP пока не переходит в режим ожидания ручного
+ввода капчи/2FA — этот путь дорабатывается в `sdo_mcp`.
 
 ### 6.3 Проверка сессии
 
-`onboarding.checkSession()` валидирует `auth.json`: загружает `profile.tusur.ru` с сохранённым
-состоянием и требует авторизованную страницу, затем открывает главную `timetable.tusur.ru` и
-убеждается, что она не является редиректом на форму входа. Невалидная/истёкшая сессия
-возвращает пользователя в `credentials`.
+`onboarding.checkSession()` вызывает `SdoMcpClient.checkSdoAuth()` (tool `check_sdo_auth`).
+Перед импортом дополнительно проверяется авторизованная главная `timetable.tusur.ru`.
+Невалидная/истёкшая сессия возвращает пользователя в `credentials`.
 
-Полная проверка через SDO MCP (`SdoMcpClient.checkSdoAuth()`, инструмент `check_sdo_auth`)
-отложена до слайса импорта (slice 2), где MCP-клиент уже подключён; в слайсе 1 достаточно
-авторизованной главной расписания.
-
-Все CSS-селекторы страниц ТУСУР держатся в одном модуле, чтобы изоляция сбоев была
-локальной.
+Логин/SSO живут только в `sdo_mcp`; в приложении нет собственных CSS-селекторов ТУСУР.
 
 ## 7. Секреты
 

@@ -3,6 +3,7 @@ import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { AppPaths } from '../shared/paths.js';
 import { OnboardingMachine } from './onboarding-machine.js';
+import { SdoMcpSessionProvider } from './sdo-mcp-session-provider.js';
 import type { SessionProvider } from './session-provider.js';
 
 export interface HostTransport {
@@ -55,7 +56,7 @@ export class CoreHost {
   }
 
   private buildMachine(provider?: SessionProvider): OnboardingMachine {
-    const session = provider ?? createLazyPlaywrightProvider();
+    const session = provider ?? new SdoMcpSessionProvider();
     return new OnboardingMachine({
       login: async (input) => {
         const outcome = await session.loginWithCredentials({
@@ -112,27 +113,6 @@ export class CoreHost {
     this.capturedOutcome = undefined;
     this.transport.post({ type: 'onboarding.loginResult', outcome });
   }
-}
-
-function createLazyPlaywrightProvider(): SessionProvider {
-  let pending: Promise<SessionProvider> | undefined;
-  const resolve = (): Promise<SessionProvider> => {
-    pending ??= (async () => {
-      const { TusurSessionProvider } = await import('./tusur-session.js');
-      const { createPlaywrightLauncher } =
-        await import('./playwright-launcher.js');
-      return new TusurSessionProvider(createPlaywrightLauncher());
-    })();
-    return pending;
-  };
-  return {
-    loginWithCredentials: async (input) =>
-      (await resolve()).loginWithCredentials(input),
-    openManualLogin: async (authStatePath) =>
-      (await resolve()).openManualLogin(authStatePath),
-    checkSession: async (authStatePath) =>
-      (await resolve()).checkSession(authStatePath),
-  };
 }
 
 function outcomeFromState(state: OnboardingState): LoginOutcome {

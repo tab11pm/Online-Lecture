@@ -124,6 +124,14 @@ export class SdoMcpClient implements OnlineLectureResolver {
   }
 
   /**
+   * Log into SDO through the TUSUR cabinet SSO and persist the session to the
+   * server's configured `SDO_AUTH_STATE_PATH`.
+   */
+  async login(): Promise<{ status: string }> {
+    return this.callJsonTool<{ status: string }>('sdo_login', {});
+  }
+
+  /**
    * List all courses available to the authenticated SDO session
    */
   async listCourses(): Promise<Course[]> {
