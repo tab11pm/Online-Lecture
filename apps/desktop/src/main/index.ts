@@ -1,6 +1,15 @@
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
+
+// Load the SDO MCP configuration (SDO_MCP_SERVER_PATH, SDO_MCP_SERVER_CWD, …)
+// before forking the worker, which inherits this environment. The file is
+// optional; packaged mode configures the server another way (phase 4).
+try {
+  process.loadEnvFile('.env');
+} catch {
+  // .env is optional.
+}
 import { CHANNELS } from '../shared/ipc-contract.js';
 import type { AppInfo, LoginInput } from '../shared/ipc-contract.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';

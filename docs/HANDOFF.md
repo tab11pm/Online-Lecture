@@ -79,6 +79,7 @@ E2E (`apps/desktop/tests/e2e/onboarding.test.ts`) — vitest + Playwright `_elec
 - **Методы клиента переведены на реальные инструменты (сделано).** Удалена несуществующая схема `sdo/*`: вместо `authenticate`/`Session` — `checkSdoAuth()` → `check_sdo_auth`; `listCourses()` (без сессии) → `list_courses`; `findCourseModule(courseUrl, query)` → `find_course_module`; `getAssignmentDetails(url)` → `get_assignment_details`. Методы `findBbbActivity`/`getBbbUrl` и типы `Credentials`/`Session`/`BbbActivity`/`BbbUrl` удалены.
 - `JobRunner` search-ветка теперь вызывает `resolveOnlineLecture` и явно обрабатывает `auth_required`/`not_found`/`ambiguous`, после резолва закрывает MCP. `credentials` из `runJob` убраны (аутентификация — по storage state).
 - Общий разбор ответа вынесен в `callJsonTool`/`readText` (`content[].text` → JSON), поэтому все инструменты используют один контракт.
+- **Slice 1 login делегирован MCP (сделано).** Онбординг больше не реализует SSO сам: worker запускает `sdo_mcp` с `SDO_USERNAME`/`SDO_PASSWORD`/`SDO_AUTH_STATE_PATH`/`HEADLESS` и вызывает tool `sdo_login`; MCP проходит cabinet-SSO и пишет **общую** сессию в `auth.json`. `checkSession` → `check_sdo_auth` (`SdoMcpSessionProvider` вместо удалённых `tusur-session.ts`/`tusur-detect.ts`). В `sdo_mcp` для этого: `saveAuthState` пишет в `SDO_AUTH_STATE_PATH` и добавлен tool `sdo_login`.
 
 ## Запуск реального MCP-сервера (сделано)
 
@@ -126,7 +127,7 @@ npm run cli -- import --db ./data/lectures.db --auth-state ./auth.json
 
 ### Ручной чек-лист desktop (Windows)
 
-- [ ] Реальный SSO: вход по логину/паролю создаёт `%LOCALAPPDATA%/OnlineLecture/auth.json`; при капче/2FA открывается видимое окно SSO.
+- [ ] Реальный SSO: вход по логину/паролю (делегируется `sdo_mcp` через `sdo_login`) создаёт `%LOCALAPPDATA%/OnlineLecture/auth.json` с SDO-сессией; при капче/2FA повтор с `HEADLESS=false` открывает видимое окно MCP.
 - [ ] DPAPI: `credentials.enc` расшифровывается на этой же учётке; при переносе на другую машину пароль не читается (ожидаемо).
 - [ ] Автозапуск: переключатель в UI меняет запись автозапуска и `settings.json`.
 - [ ] Трей: закрытие окна сворачивает в трей, «Выход» завершает процесс и ядро.

@@ -49,6 +49,21 @@ describe('SdoMcpClient', () => {
     });
   });
 
+  describe('login', () => {
+    it('calls sdo_login and returns the status', async () => {
+      const callTool = vi
+        .fn()
+        .mockResolvedValue(textResult(JSON.stringify({ status: 'logged_in' })));
+      const client = clientWith(callTool);
+
+      await expect(client.login()).resolves.toEqual({ status: 'logged_in' });
+      expect(callTool).toHaveBeenCalledWith({
+        name: 'sdo_login',
+        arguments: {},
+      });
+    });
+  });
+
   describe('listCourses', () => {
     it('maps title and url from list_courses into Course objects', async () => {
       const callTool = vi.fn().mockResolvedValue(
