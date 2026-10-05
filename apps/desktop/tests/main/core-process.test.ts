@@ -83,23 +83,12 @@ afterEach(() => {
 });
 
 describe('CoreProcess request bridge', () => {
-  it('rejects a second concurrent state request instead of overwriting the first', async () => {
+  it('coalesces a second concurrent state request into the first', async () => {
     const { core, emitMessage, posted } = createProcess();
 
     const first = core.checkSession();
     const second = core.checkSession();
 
-    const outcome = await Promise.race([
-      second.then(
-        () => 'resolved',
-        (error: unknown) => `rejected:${errorMessage(error)}`,
-      ),
-      new Promise<string>((resolve) => {
-        setTimeout(() => resolve('timeout'), 50);
-      }),
-    ]);
-
-    expect(outcome).toContain('выполняется');
     expect(
       posted.filter((command) => command.type === 'onboarding.checkSession'),
     ).toHaveLength(1);
@@ -109,6 +98,7 @@ describe('CoreProcess request bridge', () => {
       state: { phase: 'session_ready' },
     });
     await expect(first).resolves.toEqual({ phase: 'session_ready' });
+    await expect(second).resolves.toEqual({ phase: 'session_ready' });
   });
 
   it('clears the pending slot on timeout so a later request is accepted', async () => {
@@ -170,26 +160,19 @@ describe('CoreProcess request bridge', () => {
     expect(core.getLastState()).toEqual({ phase: 'credentials' });
   });
 
-  it('rejects a second concurrent login request instead of overwriting the first', async () => {
-    const { core, emitMessage } = createProcess();
+  it('coalesces a second concurrent login request into the first', async () => {
+    const { core, emitMessage, posted } = createProcess();
 
     const first = core.login({ username: 'student', password: 'secret' });
     const second = core.login({ username: 'student', password: 'secret' });
 
-    const outcome = await Promise.race([
-      second.then(
-        () => 'resolved',
-        (error: unknown) => `rejected:${errorMessage(error)}`,
-      ),
-      new Promise<string>((resolve) => {
-        setTimeout(() => resolve('timeout'), 50);
-      }),
-    ]);
-
-    expect(outcome).toContain('выполняется');
+    expect(
+      posted.filter((command) => command.type === 'onboarding.login'),
+    ).toHaveLength(1);
 
     emitMessage({ type: 'onboarding.loginResult', outcome: { ok: true } });
     await expect(first).resolves.toEqual({ ok: true });
+    await expect(second).resolves.toEqual({ ok: true });
   });
 
   it('rejects the outstanding request and notifies on host.error', async () => {
