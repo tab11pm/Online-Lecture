@@ -6,6 +6,7 @@
 
 ## What Changes
 
+- Удалить из `tab11pm/sdo-mcp` инструменты, которые не использует Online Lecture (оставить `sdo_login`, `check_sdo_auth`, `resolve_online_lecture`), а из `SdoMcpClient` — методы, обращавшиеся к ним.
 - Подготовить `tab11pm/sdo-mcp` к установке как git-зависимости (`prepare`, `files`, `main`, `bin`), добавить `SDO_BROWSER_CHANNEL` и включать отладочные скриншоты только по флагу; выпустить тег `v1.2.0`.
 - Добавить зависимость `sdo_mcp` (`github:tab11pm/sdo-mcp#v1.2.0`) в корень и в `apps/desktop`.
 - Находить точку входа установленного пакета и запускать её через `process.execPath` с `ELECTRON_RUN_AS_NODE=1`; порядок источников: `SDO_MCP_SERVER_PATH` > пакет > `~/.local/bin/sdo-mcp` > `sdo-mcp` из PATH.

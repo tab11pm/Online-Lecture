@@ -46,6 +46,12 @@
 
 ## 4. Изменения в `sdo_mcp` (tab11pm/sdo-mcp)
 
+0. **Чистка.** Online Lecture использует только `sdo_login`, `check_sdo_auth` и
+   `resolve_online_lecture`. Остальные инструменты (`list_courses`, `get_assignment_details`,
+   `download_module_files`, `list_course_modules`, `find_course_module`), код, нужный только
+   им, отладочные скрипты `src/test-*.ts` и неиспользуемая зависимость `express` удаляются,
+   чтобы пакет в установщике был меньше и не умел лишнего (скачивание файлов курса).
+   Выполняется отдельным изменением до пунктов 1–3.
 1. **Установка из git.** В `package.json`:
    - `"main": "dist/index.js"` (сейчас опечатка `srd/index.js`);
    - `"prepare": "tsc"` — npm выполняет его при установке git-зависимости, временно ставя
@@ -79,7 +85,13 @@
 Версия закрепляется тегом; обновление sdo_mcp — осознанная правка этой строки и
 `package-lock.json`.
 
-### 5.2. Поиск точки входа
+### 5.2. Удаление неиспользуемых методов клиента
+
+`SdoMcpClient.listCourses`, `findCourseModule` и `getAssignmentDetails` нигде не вызываются и
+обращаются к инструментам, которые удаляются из sdo_mcp (раздел 4, п. 0). Они удаляются
+вместе с тестами и типами, нужными только им.
+
+### 5.3. Поиск точки входа
 
 Новая функция в `src/config/mcp-config.ts`:
 
@@ -96,7 +108,7 @@ resolveBundledServer(deps?): { script: string; packageDir: string } | undefined
 Зависимости (`resolve`, `exists`) передаются параметрами, чтобы тесты не трогали реальный
 `node_modules`.
 
-### 5.3. Порядок выбора команды
+### 5.4. Порядок выбора команды
 
 `loadMcpConfig()` выбирает первый подходящий источник и запоминает его в новом поле
 `McpConfig.source`:
@@ -117,7 +129,7 @@ resolveBundledServer(deps?): { script: string; packageDir: string } | undefined
 задаётся (sdo_mcp получает настройки через окружение, а `dotenv` не перезаписывает уже
 заданные переменные).
 
-### 5.4. Канал браузера
+### 5.5. Канал браузера
 
 Десктопное приложение на Windows передаёт серверу `SDO_BROWSER_CHANNEL=msedge`, если
 переменная не задана пользователем. CLI ничего не подставляет.
