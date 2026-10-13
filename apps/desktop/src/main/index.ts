@@ -1,21 +1,13 @@
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
-
-// Load the SDO MCP configuration (SDO_MCP_SERVER_PATH, SDO_MCP_SERVER_CWD, …)
-// before forking the worker, which inherits this environment. The file is
-// optional; packaged mode configures the server another way (phase 4).
-try {
-  process.loadEnvFile('.env');
-} catch {
-  // .env is optional.
-}
 import { CHANNELS } from '../shared/ipc-contract.js';
 import type { AppInfo, LoginInput } from '../shared/ipc-contract.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import { setAutostart as applyAutostart } from './autostart.js';
 import { CoreProcess } from './core-process.js';
 import { registerIpc } from './ipc.js';
+import { findWorkspaceRoot, loadEnvFiles } from './load-env.js';
 import { createLoginHandler } from './login-handler.js';
 import { resolveAppPaths, resolveDataRoot } from './paths.js';
 import { createSafeStorageBackend } from './safe-storage-backend.js';
@@ -23,6 +15,21 @@ import { SecretStore } from './secret-store.js';
 import { SettingsStore } from './settings-store.js';
 import { createTray } from './tray.js';
 import { createMainWindow } from './window.js';
+
+// Load the SDO MCP configuration (SDO_MCP_SERVER_PATH, SDO_MCP_SERVER_CWD, …)
+// before forking the worker, which inherits this environment. The desktop app
+// runs from `apps/desktop`, so depending on the process CWD would miss the
+// repository-root `.env` documented in the README; load the app directory and
+// workspace root as well. Files are optional; packaged mode configures the
+// server another way (phase 4).
+const appPath = app.getAppPath();
+const workspaceRoot =
+  findWorkspaceRoot(appPath) ?? findWorkspaceRoot(process.cwd());
+loadEnvFiles([
+  appPath,
+  process.cwd(),
+  ...(workspaceRoot ? [workspaceRoot] : []),
+]);
 
 const startHidden = process.argv.includes('--hidden');
 
