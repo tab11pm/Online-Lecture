@@ -57,13 +57,21 @@ CI_ELECTRON_E2E=1 npm test -w @online-lecture/desktop -- onboarding
 
 ### Логин через SDO MCP
 
-Приложение не логинится само. Для реального входа нужен собранный `sdo_mcp` и переменные
-окружения (читаются из `.env` в корне репозитория):
+Приложение не логинится само, а запускает `sdo_mcp`. Он ставится как npm-зависимость
+(`node_modules/sdo_mcp`) и запускается через Node, встроенный в Electron
+(`process.execPath` с `ELECTRON_RUN_AS_NODE=1`), поэтому у пользователя не нужен Node.js.
+На Windows сервер получает `SDO_BROWSER_CHANNEL=msedge` и использует установленный Edge.
+
+Для разработки сервер можно переопределить через `.env` в корне репозитория:
 
 ```bash
 SDO_MCP_SERVER_PATH=node C:\path\to\sdo_mcp\dist\index.js   # или путь к exe/скрипту
 SDO_MCP_SERVER_CWD=C:\path\to\sdo_mcp
 ```
+
+Если сервер не найден или не запустился, онбординг показывает экран с причиной вместо
+формы входа, а подробности (источник команды, хвост stderr без секретов) пишутся в
+`logs/core.log`.
 
 Worker запускает сервер как stdio-процесс и при входе выставляет ему `SDO_USERNAME`,
 `SDO_PASSWORD`, `SDO_AUTH_STATE_PATH=<userData>/auth.json`, `HEADLESS`. MCP сам проходит
@@ -78,6 +86,7 @@ Windows: `%LOCALAPPDATA%/OnlineLecture/`
 - `auth.json` — Playwright storage state (сессия ТУСУР);
 - `credentials.enc` — пароль, зашифрованный DPAPI;
 - `settings.json` — логин и настройка автозапуска;
-- `logs/` — диагностические логи.
+- `logs/core.log` — журнал ядра: источник команды SDO MCP и ошибки запуска (секреты
+  вырезаются, при размере больше 1 МБ файл переносится в `core.log.1`).
 
 Секреты, cookies, `sessionToken` и join-URL никогда не коммитятся и не логируются.
