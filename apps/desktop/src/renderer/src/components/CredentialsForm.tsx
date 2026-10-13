@@ -15,10 +15,15 @@ export function CredentialsForm({
 }: CredentialsFormProps) {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const trimmedUsername = username.trim();
+  const canSubmit = trimmedUsername.length > 0 && password.length > 0;
 
   function handleSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
-    onSubmit({ username, password });
+    if (!canSubmit) {
+      return;
+    }
+    onSubmit({ username: trimmedUsername, password });
     setPassword('');
   }
 
@@ -33,6 +38,7 @@ export function CredentialsForm({
           name="username"
           type="text"
           autoComplete="username"
+          required
           value={username}
           disabled={disabled}
           onChange={(event) => setUsername(event.target.value)}
@@ -43,11 +49,12 @@ export function CredentialsForm({
           name="password"
           type="password"
           autoComplete="current-password"
+          required
           value={password}
           disabled={disabled}
           onChange={(event) => setPassword(event.target.value)}
         />
-        <button type="submit" disabled={disabled}>
+        <button type="submit" disabled={disabled || !canSubmit}>
           Войти
         </button>
       </form>
