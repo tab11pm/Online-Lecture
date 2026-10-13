@@ -131,6 +131,47 @@ describe('onboarding UI', () => {
     expect(consoleOutput()).not.toContain(PASSWORD);
   });
 
+  it('keeps the submit disabled until both login and password are filled', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    render(<App />);
+
+    const username = await screen.findByLabelText('Логин');
+    const password = screen.getByLabelText('Пароль');
+    const submit = screen.getByRole('button', { name: 'Войти' });
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(username, { target: { value: '   ' } });
+    fireEvent.change(password, { target: { value: PASSWORD } });
+    expect(submit).toBeDisabled();
+
+    fireEvent.change(username, { target: { value: 'student' } });
+    fireEvent.change(password, { target: { value: '' } });
+    expect(submit).toBeDisabled();
+
+    fireEvent.submit(submit.closest('form') as HTMLFormElement);
+    expect(fake.login).not.toHaveBeenCalled();
+  });
+
+  it('submits the login without surrounding whitespace', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('Логин'), {
+      target: { value: '  student  ' },
+    });
+    fireEvent.change(screen.getByLabelText('Пароль'), {
+      target: { value: PASSWORD },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+
+    await waitFor(() =>
+      expect(fake.login).toHaveBeenCalledWith({
+        username: 'student',
+        password: PASSWORD,
+      }),
+    );
+  });
+
   it('disables the submit while authenticating', async () => {
     fake.getState.mockResolvedValue({ phase: 'authenticating' });
     render(<App />);
