@@ -105,10 +105,21 @@ describe('SdoMcpClient connection failures', () => {
 });
 
 describe('appendTail', () => {
-  it('keeps only the last characters', () => {
-    const tail = appendTail('a'.repeat(4096), 'bc');
+  it('keeps the text unchanged while under the limit', () => {
+    expect(appendTail('start\n', 'more\n', 100)).toBe('start\nmore\n');
+  });
 
-    expect(tail).toHaveLength(4096);
-    expect(tail.endsWith('bc')).toBe(true);
+  it('drops a cut line that has no line break after it', () => {
+    expect(appendTail('a'.repeat(4096), 'bc')).toBe('');
+  });
+
+  it('drops a partial first line when truncating so a cut secret is not kept', () => {
+    const tail = appendTail(
+      'x'.repeat(10),
+      'Token=abc123secret\nsafe line\n',
+      25,
+    );
+
+    expect(tail).toBe('safe line\n');
   });
 });

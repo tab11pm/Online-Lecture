@@ -128,7 +128,7 @@ describe('MCP Configuration', () => {
 
       expect(config).toBeDefined();
       expect(config.serverPath).toBeDefined();
-      expect(config.connectionTimeout).toBe(5000);
+      expect(config.connectionTimeout).toBe(30000);
 
       if (originalPath) {
         process.env.SDO_MCP_SERVER_PATH = originalPath;
@@ -316,5 +316,31 @@ describe('MCP Configuration', () => {
       });
       expect(onPath).toMatchObject({ source: 'path', serverPath: 'sdo-mcp' });
     });
+  });
+
+  describe('connection timeout', () => {
+    it.each(['abc', '0', '-5'])(
+      'falls back to the 30 s default for an invalid value %s',
+      (value) => {
+        const originalConnection = process.env.SDO_MCP_CONNECTION_TIMEOUT;
+        const originalFallback = process.env.MCP_TIMEOUT_MS;
+        delete process.env.SDO_MCP_CONNECTION_TIMEOUT;
+        process.env.MCP_TIMEOUT_MS = value;
+        try {
+          expect(loadMcpConfig().connectionTimeout).toBe(30000);
+        } finally {
+          if (originalConnection === undefined) {
+            delete process.env.SDO_MCP_CONNECTION_TIMEOUT;
+          } else {
+            process.env.SDO_MCP_CONNECTION_TIMEOUT = originalConnection;
+          }
+          if (originalFallback === undefined) {
+            delete process.env.MCP_TIMEOUT_MS;
+          } else {
+            process.env.MCP_TIMEOUT_MS = originalFallback;
+          }
+        }
+      },
+    );
   });
 });
