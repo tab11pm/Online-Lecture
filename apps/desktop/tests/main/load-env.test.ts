@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  applyDesktopServerDefaults,
   envFileCandidates,
   findWorkspaceRoot,
   loadEnvFiles,
@@ -86,5 +87,34 @@ describe('loadEnvFiles', () => {
     writeFileSync(join(root, '.env'), 'OL_ENV_TEST_FOUR="unterminated', 'utf8');
 
     expect(() => loadEnvFiles([root])).not.toThrow();
+  });
+});
+
+describe('applyDesktopServerDefaults', () => {
+  it('sets msedge on Windows when the channel is not defined', () => {
+    const env: NodeJS.ProcessEnv = {};
+
+    applyDesktopServerDefaults(env, 'win32');
+
+    expect(env.SDO_BROWSER_CHANNEL).toBe('msedge');
+  });
+
+  it('keeps a user-defined channel, including an empty one', () => {
+    const empty: NodeJS.ProcessEnv = { SDO_BROWSER_CHANNEL: '' };
+    const chrome: NodeJS.ProcessEnv = { SDO_BROWSER_CHANNEL: 'chrome' };
+
+    applyDesktopServerDefaults(empty, 'win32');
+    applyDesktopServerDefaults(chrome, 'win32');
+
+    expect(empty.SDO_BROWSER_CHANNEL).toBe('');
+    expect(chrome.SDO_BROWSER_CHANNEL).toBe('chrome');
+  });
+
+  it('does nothing outside Windows', () => {
+    const env: NodeJS.ProcessEnv = {};
+
+    applyDesktopServerDefaults(env, 'linux');
+
+    expect('SDO_BROWSER_CHANNEL' in env).toBe(false);
   });
 });

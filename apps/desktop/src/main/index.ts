@@ -7,7 +7,11 @@ import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import { setAutostart as applyAutostart } from './autostart.js';
 import { CoreProcess } from './core-process.js';
 import { registerIpc } from './ipc.js';
-import { findWorkspaceRoot, loadEnvFiles } from './load-env.js';
+import {
+  applyDesktopServerDefaults,
+  findWorkspaceRoot,
+  loadEnvFiles,
+} from './load-env.js';
 import { createLoginHandler } from './login-handler.js';
 import { resolveAppPaths, resolveDataRoot } from './paths.js';
 import { createSafeStorageBackend } from './safe-storage-backend.js';
@@ -30,6 +34,7 @@ loadEnvFiles([
   process.cwd(),
   ...(workspaceRoot ? [workspaceRoot] : []),
 ]);
+applyDesktopServerDefaults(process.env, process.platform);
 
 const startHidden = process.argv.includes('--hidden');
 

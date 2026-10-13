@@ -79,3 +79,17 @@ export function loadEnvFiles(dirs: string[]): string[] {
   }
   return loaded;
 }
+
+/**
+ * Desktop defaults for the SDO MCP server environment. On Windows the server
+ * drives the preinstalled Edge, so users never download a Playwright browser.
+ * A variable the user defined, even as an empty string, is left alone.
+ */
+export function applyDesktopServerDefaults(
+  env: NodeJS.ProcessEnv,
+  platform: NodeJS.Platform,
+): void {
+  if (platform === 'win32' && env.SDO_BROWSER_CHANNEL === undefined) {
+    env.SDO_BROWSER_CHANNEL = 'msedge';
+  }
+}
