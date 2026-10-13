@@ -25,6 +25,11 @@ export type {
   Weekday,
 } from './types.js';
 export { redactSensitiveText } from './redaction.js';
+export {
+  isSdoMcpUnavailableError,
+  SdoMcpUnavailableError,
+} from './mcp-errors.js';
+export type { SdoMcpUnavailableReason } from './mcp-errors.js';
 export { findActiveOccurrence } from './occurrence.js';
 export { completeRun, transitionRun } from './lifecycle.js';
 export { leaveIfDeadlineReached } from './deadline.js';
