@@ -147,8 +147,12 @@ export interface OnlineLectureResolver {
   }): Promise<OnlineLectureResolution>;
 }
 
+/** Where the SDO MCP server command came from, in priority order. */
+export type McpServerSource = 'env' | 'bundled' | 'user-install' | 'path';
+
 export interface McpConfig {
   serverPath: string;
+  source?: McpServerSource;
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;

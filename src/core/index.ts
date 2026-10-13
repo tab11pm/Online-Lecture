@@ -11,6 +11,7 @@ export type {
   LectureRunner,
   LectureTarget,
   McpConfig,
+  McpServerSource,
   Occurrence,
   OnlineLectureCandidate,
   OnlineLectureResolution,

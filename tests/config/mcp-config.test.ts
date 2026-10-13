@@ -4,6 +4,7 @@ import {
   collectServerEnv,
   defaultServerCommand,
   loadMcpConfig,
+  resolveBundledServer,
 } from '../../src/config/mcp-config.js';
 
 describe('MCP Configuration', () => {
@@ -153,6 +154,167 @@ describe('MCP Configuration', () => {
 
     it('falls back to sdo-mcp on PATH when there is no home directory', () => {
       expect(defaultServerCommand('', () => true)).toBe('sdo-mcp');
+    });
+  });
+
+  describe('resolveBundledServer', () => {
+    it('returns the resolved entry point of the installed package', () => {
+      const script = join(
+        '/repo',
+        'node_modules',
+        'sdo_mcp',
+        'dist',
+        'index.js',
+      );
+
+      expect(
+        resolveBundledServer(
+          () => script,
+          () => true,
+        ),
+      ).toBe(script);
+    });
+
+    it('returns undefined when the package is not installed', () => {
+      expect(
+        resolveBundledServer(
+          () => {
+            throw new Error('MODULE_NOT_FOUND');
+          },
+          () => true,
+        ),
+      ).toBeUndefined();
+    });
+
+    it('returns undefined when the entry point file is missing', () => {
+      expect(
+        resolveBundledServer(
+          () => '/repo/node_modules/sdo_mcp/dist/index.js',
+          () => false,
+        ),
+      ).toBeUndefined();
+    });
+
+    it('maps a path inside app.asar to app.asar.unpacked', () => {
+      const packed = join(
+        'C:',
+        'App',
+        'resources',
+        'app.asar',
+        'node_modules',
+        'sdo_mcp',
+        'dist',
+        'index.js',
+      );
+      const unpacked = join(
+        'C:',
+        'App',
+        'resources',
+        'app.asar.unpacked',
+        'node_modules',
+        'sdo_mcp',
+        'dist',
+        'index.js',
+      );
+
+      expect(
+        resolveBundledServer(
+          () => packed,
+          (path) => path === unpacked,
+        ),
+      ).toBe(unpacked);
+    });
+
+    it('maps a Windows-style app.asar path to app.asar.unpacked', () => {
+      const packed =
+        'C:\\App\\resources\\app.asar\\node_modules\\sdo_mcp\\dist\\index.js';
+      const unpacked =
+        'C:\\App\\resources\\app.asar.unpacked\\node_modules\\sdo_mcp\\dist\\index.js';
+
+      expect(
+        resolveBundledServer(
+          () => packed,
+          (path) => path === unpacked,
+        ),
+      ).toBe(unpacked);
+    });
+  });
+
+  describe('loadMcpConfig server source', () => {
+    function withServerPath<T>(value: string | undefined, run: () => T): T {
+      const original = process.env.SDO_MCP_SERVER_PATH;
+      if (value === undefined) {
+        delete process.env.SDO_MCP_SERVER_PATH;
+      } else {
+        process.env.SDO_MCP_SERVER_PATH = value;
+      }
+      try {
+        return run();
+      } finally {
+        if (original === undefined) {
+          delete process.env.SDO_MCP_SERVER_PATH;
+        } else {
+          process.env.SDO_MCP_SERVER_PATH = original;
+        }
+      }
+    }
+
+    const script = '/repo/node_modules/sdo_mcp/dist/index.js';
+
+    it('uses SDO_MCP_SERVER_PATH even when the package is installed', () => {
+      const config = withServerPath('node /dev/sdo/dist/index.js', () =>
+        loadMcpConfig({ resolveBundled: () => script }),
+      );
+
+      expect(config).toMatchObject({
+        source: 'env',
+        serverPath: 'node',
+        args: ['/dev/sdo/dist/index.js'],
+      });
+      expect(config.env?.ELECTRON_RUN_AS_NODE).toBeUndefined();
+    });
+
+    it('runs the installed package through process.execPath', () => {
+      const config = withServerPath(undefined, () =>
+        loadMcpConfig({ resolveBundled: () => script }),
+      );
+
+      expect(config.source).toBe('bundled');
+      expect(config.serverPath).toBe(process.execPath);
+      expect(config.args).toEqual([script]);
+      expect(config.env?.ELECTRON_RUN_AS_NODE).toBe('1');
+    });
+
+    it('keeps a package path with spaces and Cyrillic as a single argument', () => {
+      const spaced =
+        'C:\\Users\\Иван Петров\\app\\node_modules\\sdo_mcp\\dist\\index.js';
+      const config = withServerPath(undefined, () =>
+        loadMcpConfig({ resolveBundled: () => spaced }),
+      );
+
+      expect(config.args).toEqual([spaced]);
+    });
+
+    it('falls back to the user install, then to sdo-mcp on PATH', () => {
+      const userInstall = withServerPath(undefined, () =>
+        loadMcpConfig({
+          resolveBundled: () => undefined,
+          defaultCommand: () => '/home/student/.local/bin/sdo-mcp',
+        }),
+      );
+      const onPath = withServerPath(undefined, () =>
+        loadMcpConfig({
+          resolveBundled: () => undefined,
+          defaultCommand: () => 'sdo-mcp',
+        }),
+      );
+
+      expect(userInstall).toMatchObject({
+        source: 'user-install',
+        serverPath: '/home/student/.local/bin/sdo-mcp',
+        args: [],
+      });
+      expect(onPath).toMatchObject({ source: 'path', serverPath: 'sdo-mcp' });
     });
   });
 });
