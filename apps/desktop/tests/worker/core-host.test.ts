@@ -42,6 +42,20 @@ function machine(
   });
 }
 
+// The real OnboardingMachine now degrades a failed session check to the
+// credentials phase (covered by its own tests), so CoreHost's error path is
+// exercised with a minimal machine whose command rejects.
+function throwingMachine(error: Error): OnboardingMachine {
+  return {
+    onChange: () => () => undefined,
+    start: () => ({ phase: 'welcome' }),
+    getState: () => ({ phase: 'welcome' }),
+    submitCredentials: vi.fn().mockResolvedValue({ phase: 'welcome' }),
+    openManualSso: vi.fn().mockResolvedValue({ phase: 'welcome' }),
+    checkSession: vi.fn().mockRejectedValue(error),
+  } as unknown as OnboardingMachine;
+}
+
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('CoreHost', () => {
@@ -144,11 +158,7 @@ describe('CoreHost', () => {
     const { transport, posted, send } = fakeTransport();
     const host = new CoreHost(transport, {
       paths,
-      machine: machine({
-        checkSession: vi
-          .fn()
-          .mockRejectedValue(new Error('failed at bbb2.tusur.ru/b/abc')),
-      }),
+      machine: throwingMachine(new Error('failed at bbb2.tusur.ru/b/abc')),
     });
     host.start();
 
@@ -167,13 +177,9 @@ describe('CoreHost', () => {
     const { transport, posted, send } = fakeTransport();
     const host = new CoreHost(transport, {
       paths,
-      machine: machine({
-        checkSession: vi
-          .fn()
-          .mockRejectedValue(
-            new Error('cookie: session=abc https://tusur.ru/?token=xyz'),
-          ),
-      }),
+      machine: throwingMachine(
+        new Error('cookie: session=abc https://tusur.ru/?token=xyz'),
+      ),
     });
     host.start();
 

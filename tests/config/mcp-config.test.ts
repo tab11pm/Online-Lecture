@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
+import { join } from 'node:path';
 import {
   collectServerEnv,
+  defaultServerCommand,
   loadMcpConfig,
 } from '../../src/config/mcp-config.js';
 
@@ -130,6 +132,27 @@ describe('MCP Configuration', () => {
       if (originalPath) {
         process.env.SDO_MCP_SERVER_PATH = originalPath;
       }
+    });
+  });
+
+  describe('defaultServerCommand', () => {
+    it('uses the per-user install when it exists, keeping spaces in the path', () => {
+      const home = 'C:\\Users\\Ivan Petrov';
+      const expected = join(home, '.local', 'bin', 'sdo-mcp');
+
+      expect(defaultServerCommand(home, (path) => path === expected)).toBe(
+        expected,
+      );
+    });
+
+    it('falls back to sdo-mcp on PATH when the per-user install is missing', () => {
+      expect(defaultServerCommand('/home/student', () => false)).toBe(
+        'sdo-mcp',
+      );
+    });
+
+    it('falls back to sdo-mcp on PATH when there is no home directory', () => {
+      expect(defaultServerCommand('', () => true)).toBe('sdo-mcp');
     });
   });
 });

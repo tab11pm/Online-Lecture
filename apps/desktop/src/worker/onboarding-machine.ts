@@ -18,6 +18,8 @@ const LOGIN_ERROR_MESSAGE =
   'Не удалось войти. Проверьте подключение и попробуйте ещё раз.';
 const MANUAL_SSO_ERROR_MESSAGE =
   'Не удалось открыть окно входа. Попробуйте ещё раз.';
+const SESSION_CHECK_ERROR_MESSAGE =
+  'Не удалось проверить сессию. Выполните вход.';
 
 export class OnboardingMachine {
   private state: OnboardingState = { phase: 'welcome' };
@@ -96,10 +98,21 @@ export class OnboardingMachine {
   }
 
   async checkSession(): Promise<OnboardingState> {
-    const valid = await this.deps.checkSession();
-    this.setState(
-      valid ? { phase: 'session_ready' } : { phase: 'credentials' },
-    );
+    // A thrown error here means the session *could not be verified* (for
+    // example, the SDO MCP server is missing or unreachable), not that the
+    // session expired. Either way the safe next step is the login form, so we
+    // never let the failure escape as an unhandled IPC rejection.
+    try {
+      const valid = await this.deps.checkSession();
+      this.setState(
+        valid ? { phase: 'session_ready' } : { phase: 'credentials' },
+      );
+    } catch {
+      this.setState({
+        phase: 'credentials',
+        error: SESSION_CHECK_ERROR_MESSAGE,
+      });
+    }
     return this.state;
   }
 

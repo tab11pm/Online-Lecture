@@ -1,3 +1,6 @@
+import { existsSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { join } from 'node:path';
 import type { McpConfig } from '../core/types.js';
 
 /**
@@ -75,17 +78,33 @@ export function collectServerEnv(
 }
 
 /**
+ * Server command used when `SDO_MCP_SERVER_PATH` is unset: the per-user
+ * install when it exists, otherwise `sdo-mcp` looked up on PATH. The path is
+ * returned as a single executable and never split, so a home directory with
+ * spaces (common on Windows) stays intact.
+ */
+export function defaultServerCommand(
+  home: string = homedir(),
+  exists: (path: string) => boolean = existsSync,
+): string {
+  if (home) {
+    const userInstall = join(home, '.local', 'bin', 'sdo-mcp');
+    if (exists(userInstall)) {
+      return userInstall;
+    }
+  }
+  return 'sdo-mcp';
+}
+
+/**
  * Load MCP server configuration from environment or defaults
  */
 export function loadMcpConfig(): McpConfig {
   const envPath = process.env.SDO_MCP_SERVER_PATH;
-  const rawCommand =
+  const { command, args } =
     envPath && envPath.trim().length > 0
-      ? envPath
-      : process.env.HOME
-        ? `${process.env.HOME}/.local/bin/sdo-mcp`
-        : 'sdo-mcp';
-  const { command, args } = splitCommandLine(rawCommand);
+      ? splitCommandLine(envPath)
+      : { command: defaultServerCommand(), args: [] };
 
   const cwd = process.env.SDO_MCP_SERVER_CWD;
   const connectionTimeout = parseInt(

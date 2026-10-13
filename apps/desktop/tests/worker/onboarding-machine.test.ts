@@ -81,4 +81,18 @@ describe('OnboardingMachine', () => {
     const m = machine({ checkSession: vi.fn().mockResolvedValue(false) });
     expect(await m.checkSession()).toMatchObject({ phase: 'credentials' });
   });
+
+  it('returns to credentials with an error instead of throwing when the session check fails', async () => {
+    const m = machine({
+      checkSession: vi
+        .fn()
+        .mockRejectedValue(new Error('MCP error -32000: Connection closed')),
+    });
+
+    await expect(m.checkSession()).resolves.toMatchObject({
+      phase: 'credentials',
+    });
+    const state = await m.checkSession();
+    expect((state as { error?: string }).error).toBeTruthy();
+  });
 });
