@@ -1,11 +1,29 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import {
+  appendTail,
+  SdoMcpUnavailableError,
+  type SdoMcpUnavailableReason,
+} from './mcp-errors.js';
+import { redactSensitiveText } from './redaction.js';
 import type {
   McpConfig,
   OnlineLectureResolution,
   OnlineLectureResolver,
 } from './types.js';
+
+const DEFAULT_CONNECTION_TIMEOUT_MS = 5000;
+
+class HandshakeTimeout extends Error {}
+
+function classifyConnectError(error: unknown): SdoMcpUnavailableReason {
+  if (error instanceof HandshakeTimeout) {
+    return 'timeout';
+  }
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 'ENOENT' || code === 'EACCES' ? 'not_found' : 'exited';
+}
 
 /**
  * SDO MCP Client - communicates with the SDO MCP server via stdio protocol.
@@ -23,21 +41,29 @@ export class SdoMcpClient implements OnlineLectureResolver {
   }
 
   /**
-   * Initialize MCP client connection
+   * Initialize MCP client connection.
+   *
+   * Startup failures become `SdoMcpUnavailableError` with a redacted stderr
+   * tail; the handshake is bounded by `connectionTimeout`.
    */
   private async ensureConnected(): Promise<void> {
     if (this.client) {
       return;
     }
 
-    this.transport = new StdioClientTransport({
+    const transport = new StdioClientTransport({
       command: this.config.serverPath,
       args: this.config.args ?? [],
       ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
       ...(this.config.env ? { env: this.config.env } : {}),
+      stderr: 'pipe',
+    });
+    let stderrTail = '';
+    transport.stderr?.on('data', (chunk: Buffer | string) => {
+      stderrTail = appendTail(stderrTail, chunk.toString());
     });
 
-    this.client = new Client(
+    const client = new Client(
       {
         name: 'online-lecture',
         version: '0.1.0',
@@ -47,7 +73,30 @@ export class SdoMcpClient implements OnlineLectureResolver {
       },
     );
 
-    await this.client.connect(this.transport);
+    const timeoutMs =
+      this.config.connectionTimeout ?? DEFAULT_CONNECTION_TIMEOUT_MS;
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new HandshakeTimeout()), timeoutMs);
+    });
+
+    try {
+      await Promise.race([client.connect(transport), timedOut]);
+    } catch (error) {
+      await transport.close().catch(() => undefined);
+      // Let stderr chunks already emitted by the dead process land.
+      await new Promise((resolve) => setImmediate(resolve));
+      throw new SdoMcpUnavailableError(
+        classifyConnectError(error),
+        this.config.source,
+        redactSensitiveText(stderrTail.trim()),
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+
+    this.client = client;
+    this.transport = transport;
   }
 
   private async callTool(
