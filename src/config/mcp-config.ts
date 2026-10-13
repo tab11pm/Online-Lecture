@@ -97,6 +97,13 @@ export function defaultServerCommand(
   return 'sdo-mcp';
 }
 
+/**
+ * Handshake bound for starting SDO MCP. It is a liveness check, not a
+ * responsiveness one: a cold first start on Windows (antivirus scan, cold disk
+ * cache, Playwright loading) can take well over 5 seconds.
+ */
+export const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
+
 const ASAR_SEGMENT = /([\\/])app\.asar([\\/])/;
 
 function resolveFromHere(id: string): string {
@@ -167,12 +174,14 @@ export function loadMcpConfig(deps: LoadMcpConfigDependencies = {}): McpConfig {
   }
 
   const cwd = process.env.SDO_MCP_SERVER_CWD;
-  const connectionTimeout = parseInt(
-    process.env.SDO_MCP_CONNECTION_TIMEOUT ||
-      process.env.MCP_TIMEOUT_MS ||
-      '5000',
+  const parsedTimeout = parseInt(
+    process.env.SDO_MCP_CONNECTION_TIMEOUT || process.env.MCP_TIMEOUT_MS || '',
     10,
   );
+  const connectionTimeout =
+    Number.isFinite(parsedTimeout) && parsedTimeout > 0
+      ? parsedTimeout
+      : DEFAULT_CONNECTION_TIMEOUT_MS;
 
   return {
     serverPath: command,

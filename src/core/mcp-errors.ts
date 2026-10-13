@@ -30,8 +30,17 @@ export function isSdoMcpUnavailableError(
   return error instanceof Error && error.name === ERROR_NAME;
 }
 
-/** Appends `chunk` and keeps only the last `max` characters. */
+/**
+ * Appends `chunk` and keeps only the last `max` characters. When truncation
+ * cuts into a line, that partial line is dropped: a secret cut mid-key (for
+ * example `ionToken=…`) would no longer match the redaction patterns.
+ */
 export function appendTail(tail: string, chunk: string, max = 4096): string {
   const next = tail + chunk;
-  return next.length > max ? next.slice(next.length - max) : next;
+  if (next.length <= max) {
+    return next;
+  }
+  const cut = next.slice(next.length - max);
+  const firstBreak = cut.indexOf('\n');
+  return firstBreak === -1 ? '' : cut.slice(firstBreak + 1);
 }

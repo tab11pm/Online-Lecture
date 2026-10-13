@@ -13,7 +13,8 @@ import type {
   OnlineLectureResolver,
 } from './types.js';
 
-const DEFAULT_CONNECTION_TIMEOUT_MS = 5000;
+// Matches the default of loadMcpConfig for configs built by hand.
+const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
 
 class HandshakeTimeout extends Error {}
 

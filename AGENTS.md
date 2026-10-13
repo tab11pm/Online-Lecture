@@ -46,7 +46,7 @@ SDO_MCP_SERVER_PATH=/path/to/sdo-mcp npm run cli -- run-job <job-id> <occurrence
 - `SDO_MCP_SERVER_PATH` — SDO MCP server command line (optional override). When unset, the server command is chosen in order: the installed `sdo_mcp` package run through `process.execPath` (with `ELECTRON_RUN_AS_NODE=1` set automatically), `~/.local/bin/sdo-mcp` if it exists, then `sdo-mcp` on PATH
 - `SDO_BROWSER_CHANNEL` — Playwright browser channel for the SDO MCP server (e.g. `msedge`). The desktop app sets `msedge` on Windows when the variable is undefined; set it to an empty string to use Playwright's own Chromium
 - `SDO_AUTH_STATE_PATH` — Path to the shared TUSUR SSO Playwright storage state used by the SDO MCP server
-- `MCP_TIMEOUT_MS` — MCP connection timeout in milliseconds (optional, defaults to 5000)
+- `MCP_TIMEOUT_MS` (or `SDO_MCP_CONNECTION_TIMEOUT`) — SDO MCP startup handshake timeout in milliseconds (optional, defaults to 30000; invalid or non-positive values fall back to the default)
 
 Use OpenSpec to propose and review meaningful changes before implementing them; keep implementation aligned with the approved specification change.
 
