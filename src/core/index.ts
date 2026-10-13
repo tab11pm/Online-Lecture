@@ -3,8 +3,6 @@ export type {
   Clock,
   CompletionReason,
   Course,
-  CourseModuleMatch,
-  CourseModuleMatches,
   ImportedOccurrence,
   Job,
   JobOrigin,
