@@ -1,7 +1,9 @@
+import { isSdoMcpUnavailableError } from '@core/core/mcp-errors.js';
 import { redactSensitiveText } from '@core/core/redaction.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { AppPaths } from '../shared/paths.js';
+import type { CoreLog } from './core-log.js';
 import { OnboardingMachine } from './onboarding-machine.js';
 import { SdoMcpSessionProvider } from './sdo-mcp-session-provider.js';
 import type { SessionProvider } from './session-provider.js';
@@ -15,11 +17,13 @@ export interface CoreHostDependencies {
   paths: AppPaths;
   machine?: OnboardingMachine;
   provider?: SessionProvider;
+  log?: CoreLog;
 }
 
 export class CoreHost {
   private readonly paths: AppPaths;
   private readonly machine: OnboardingMachine;
+  private readonly log: CoreLog | undefined;
   private capturedOutcome: LoginOutcome | undefined;
   private unsubscribe: (() => void) | undefined;
   private started = false;
@@ -29,6 +33,7 @@ export class CoreHost {
     deps: CoreHostDependencies,
   ) {
     this.paths = deps.paths;
+    this.log = deps.log;
     this.machine = deps.machine ?? this.buildMachine(deps.provider);
   }
 
@@ -72,7 +77,22 @@ export class CoreHost {
         return outcome;
       },
       checkSession: () => session.checkSession(this.paths.authState),
+      ...(this.log ? { logPath: this.log.path } : {}),
+      onError: (error) => this.logError(error),
     });
+  }
+
+  private logError(error: unknown): void {
+    if (!this.log) {
+      return;
+    }
+    if (isSdoMcpUnavailableError(error)) {
+      this.log.error(
+        `sdo-mcp unavailable reason=${error.reason} source=${error.source ?? 'unknown'}\n${error.detail}`,
+      );
+      return;
+    }
+    this.log.error(`onboarding error: ${errorMessage(error)}`);
   }
 
   private async handle(command: MainCommand): Promise<void> {
