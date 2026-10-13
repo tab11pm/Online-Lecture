@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import type { McpConfig } from '../core/types.js';
+import type { McpConfig, McpServerSource } from '../core/types.js';
 
 /**
  * Split a command line into the executable and its arguments.
@@ -96,15 +97,74 @@ export function defaultServerCommand(
   return 'sdo-mcp';
 }
 
+const ASAR_SEGMENT = /([\\/])app\.asar([\\/])/;
+
+function resolveFromHere(id: string): string {
+  return createRequire(import.meta.url).resolve(id);
+}
+
 /**
- * Load MCP server configuration from environment or defaults
+ * Entry point of the installed `sdo_mcp` package (its `main`,
+ * `dist/index.js`), or `undefined` when the package is missing or unbuilt.
+ * Inside a packaged Electron app the path runs through `app.asar`; a script
+ * started as a separate process must come from `app.asar.unpacked` instead.
  */
-export function loadMcpConfig(): McpConfig {
+export function resolveBundledServer(
+  resolve: (id: string) => string = resolveFromHere,
+  exists: (path: string) => boolean = existsSync,
+): string | undefined {
+  let script: string;
+  try {
+    script = resolve('sdo_mcp');
+  } catch {
+    return undefined;
+  }
+  const runnable = script.replace(ASAR_SEGMENT, '$1app.asar.unpacked$2');
+  return exists(runnable) ? runnable : undefined;
+}
+
+export interface LoadMcpConfigDependencies {
+  resolveBundled?: () => string | undefined;
+  defaultCommand?: () => string;
+}
+
+interface ServerCommand {
+  source: McpServerSource;
+  command: string;
+  args: string[];
+}
+
+function selectServerCommand(deps: LoadMcpConfigDependencies): ServerCommand {
   const envPath = process.env.SDO_MCP_SERVER_PATH;
-  const { command, args } =
-    envPath && envPath.trim().length > 0
-      ? splitCommandLine(envPath)
-      : { command: defaultServerCommand(), args: [] };
+  if (envPath && envPath.trim().length > 0) {
+    return { source: 'env', ...splitCommandLine(envPath) };
+  }
+  const script = (deps.resolveBundled ?? resolveBundledServer)();
+  if (script) {
+    return { source: 'bundled', command: process.execPath, args: [script] };
+  }
+  const command = (deps.defaultCommand ?? defaultServerCommand)();
+  return {
+    source: command === 'sdo-mcp' ? 'path' : 'user-install',
+    command,
+    args: [],
+  };
+}
+
+/**
+ * Load MCP server configuration from environment or defaults.
+ *
+ * The command comes from, in order: `SDO_MCP_SERVER_PATH`, the installed
+ * `sdo_mcp` package run through `process.execPath` (Electron's Node when
+ * `ELECTRON_RUN_AS_NODE=1`, plain `node` in the CLI), the per-user install,
+ * then `sdo-mcp` on PATH.
+ */
+export function loadMcpConfig(deps: LoadMcpConfigDependencies = {}): McpConfig {
+  const { source, command, args } = selectServerCommand(deps);
+  const env = collectServerEnv();
+  if (source === 'bundled') {
+    env.ELECTRON_RUN_AS_NODE = '1';
+  }
 
   const cwd = process.env.SDO_MCP_SERVER_CWD;
   const connectionTimeout = parseInt(
@@ -117,8 +177,9 @@ export function loadMcpConfig(): McpConfig {
   return {
     serverPath: command,
     args,
+    source,
     ...(cwd ? { cwd } : {}),
-    env: collectServerEnv(),
+    env,
     connectionTimeout,
   };
 }
