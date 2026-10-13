@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import { SdoMcpClient } from '@core/core/mcp-client.js';
+import { SdoMcpUnavailableError } from '@core/core/mcp-errors.js';
 import { SdoMcpSessionProvider } from '../../src/worker/sdo-mcp-session-provider.js';
 
 const config = { serverPath: 'sdo-mcp', args: [] as string[] };
@@ -66,5 +67,20 @@ describe('SdoMcpSessionProvider', () => {
 
     await expect(provider.checkSession('/data/auth.json')).resolves.toBe(true);
     expect(check).toHaveBeenCalledTimes(1);
+  });
+
+  it('rethrows SDO MCP unavailability from login instead of mapping it to an outcome', async () => {
+    const unavailable = new SdoMcpUnavailableError('not_found', 'path', '');
+    vi.spyOn(SdoMcpClient.prototype, 'login').mockRejectedValue(unavailable);
+    vi.spyOn(SdoMcpClient.prototype, 'close').mockResolvedValue(undefined);
+
+    const provider = new SdoMcpSessionProvider(config);
+
+    await expect(provider.loginWithCredentials(input)).rejects.toBe(
+      unavailable,
+    );
+    await expect(provider.openManualLogin('/data/auth.json')).rejects.toBe(
+      unavailable,
+    );
   });
 });
