@@ -125,20 +125,6 @@ export interface Course {
   url?: string;
 }
 
-export interface CourseModuleMatch {
-  title: string;
-  url: string;
-  type: string;
-  score: number;
-}
-
-export interface CourseModuleMatches {
-  courseUrl: string;
-  query: string;
-  totalModules: number;
-  matches: CourseModuleMatch[];
-}
-
 export interface OnlineLectureCandidate {
   id: string;
   name: string;

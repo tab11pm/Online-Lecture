@@ -2,25 +2,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import type {
-  Course,
-  CourseModuleMatches,
   McpConfig,
   OnlineLectureResolution,
   OnlineLectureResolver,
 } from './types.js';
-
-interface RawCourse {
-  title: string;
-  url: string;
-}
-
-function courseIdFromUrl(url: string): string {
-  try {
-    return new URL(url).searchParams.get('id') ?? url;
-  } catch {
-    return url;
-  }
-}
 
 /**
  * SDO MCP Client - communicates with the SDO MCP server via stdio protocol.
@@ -129,43 +114,6 @@ export class SdoMcpClient implements OnlineLectureResolver {
    */
   async login(): Promise<{ status: string }> {
     return this.callJsonTool<{ status: string }>('sdo_login', {});
-  }
-
-  /**
-   * List all courses available to the authenticated SDO session
-   */
-  async listCourses(): Promise<Course[]> {
-    const courses = await this.callJsonTool<RawCourse[]>('list_courses', {});
-
-    return courses.map((course) => ({
-      id: courseIdFromUrl(course.url),
-      name: course.title,
-      url: course.url,
-    }));
-  }
-
-  /**
-   * Find materials or assignments on a course page by title
-   */
-  async findCourseModule(
-    courseUrl: string,
-    query: string,
-  ): Promise<CourseModuleMatches> {
-    return this.callJsonTool<CourseModuleMatches>('find_course_module', {
-      courseUrl,
-      query,
-    });
-  }
-
-  /**
-   * Open an assignment page in SDO and return its text
-   */
-  async getAssignmentDetails(assignmentUrl: string): Promise<string> {
-    const result = await this.callTool('get_assignment_details', {
-      assignmentUrl,
-    });
-
-    return SdoMcpClient.readText('get_assignment_details', result);
   }
 
   /**
