@@ -48,9 +48,16 @@ export function findActiveOccurrence(
     }
     times = { joinAt: schedule.joinAt, leaveAt: schedule.leaveAt };
   } else if (schedule.type === 'imported') {
-    const occurrence = schedule.occurrences.find(
-      (entry) => entry.date === localDate && !entry.suppressed,
-    );
+    const occurrence = schedule.occurrences.find((entry) => {
+      if (entry.date !== localDate || entry.suppressed) return false;
+      const start = DateTime.fromISO(`${localDate}T${entry.joinAt}`, {
+        zone: schedule.timezone,
+      });
+      const end = DateTime.fromISO(`${localDate}T${entry.leaveAt}`, {
+        zone: schedule.timezone,
+      });
+      return localNow >= start && localNow < end;
+    });
     if (occurrence === undefined) {
       return undefined;
     }

@@ -44,4 +44,24 @@ describe('findActiveOccurrence', () => {
       '2026-09-28T10:00:00.000+07:00',
     );
   });
+
+  it('picks the imported entry whose window contains now', () => {
+    const job: Job = {
+      ...weeklyJob,
+      id: 'imp',
+      schedule: {
+        type: 'imported',
+        timezone: 'Asia/Krasnoyarsk',
+        occurrences: [
+          { date: '2026-10-19', joinAt: '10:00', leaveAt: '11:35' },
+          { date: '2026-10-19', joinAt: '11:45', leaveAt: '13:20' },
+        ],
+      },
+    };
+    const now = DateTime.fromISO('2026-10-19T12:00:00+07:00').toJSDate();
+
+    expect(findActiveOccurrence(job, now)?.joinAt).toBe(
+      '2026-10-19T11:45:00.000+07:00',
+    );
+  });
 });
