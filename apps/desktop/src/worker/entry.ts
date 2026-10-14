@@ -54,11 +54,12 @@ function createProvider(): SessionProvider {
     return new FakeSessionProvider();
   }
   const config = loadMcpConfig();
+  const externalChannel = process.argv[3] === '1' ? process.argv[4] : undefined;
   // Command and source only: the server environment carries credentials.
   log.info(
     `sdo-mcp source=${config.source ?? 'unknown'} command=${[config.serverPath, ...(config.args ?? [])].join(' ')}`,
   );
-  return new SdoMcpSessionProvider(config);
+  return new SdoMcpSessionProvider(config, externalChannel);
 }
 
 new CoreHost(transport, {

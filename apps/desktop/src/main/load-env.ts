@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import type { BrowserChoice } from '../shared/browser-choice.js';
 
 interface PackageJsonWithWorkspaces {
   workspaces?: unknown;
@@ -88,8 +89,9 @@ export function loadEnvFiles(dirs: string[]): string[] {
 export function applyDesktopServerDefaults(
   env: NodeJS.ProcessEnv,
   platform: NodeJS.Platform,
+  choice: BrowserChoice = 'edge',
 ): void {
   if (platform === 'win32' && env.SDO_BROWSER_CHANNEL === undefined) {
-    env.SDO_BROWSER_CHANNEL = 'msedge';
+    env.SDO_BROWSER_CHANNEL = choice === 'edge' ? 'msedge' : '';
   }
 }

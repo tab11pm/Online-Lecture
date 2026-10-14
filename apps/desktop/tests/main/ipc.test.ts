@@ -40,6 +40,24 @@ function handlersWith(overrides: IpcHandlerMap = {}): IpcHandlerMap {
 }
 
 describe('registerIpc', () => {
+  it('exposes browser selection and installation through narrow IPC channels', async () => {
+    const { ipcMain, invoke } = fakeIpcMain();
+    const setBrowser = vi.fn().mockResolvedValue({ choice: 'edge' });
+    const install = vi.fn().mockResolvedValue({ choice: 'chromium' });
+    registerIpc({
+      ipcMain,
+      handlers: handlersWith({
+        [CHANNELS.app.setBrowser]: setBrowser,
+        [CHANNELS.app.installChromium]: install,
+      }),
+    });
+    await expect(invoke(CHANNELS.app.setBrowser, 'edge')).resolves.toEqual({
+      choice: 'edge',
+    });
+    await expect(invoke(CHANNELS.app.installChromium)).resolves.toEqual({
+      choice: 'chromium',
+    });
+  });
   it('registers exactly one handler for every invoke channel', () => {
     const { ipcMain, registered } = fakeIpcMain();
 

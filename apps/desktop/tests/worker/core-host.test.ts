@@ -61,6 +61,18 @@ function throwingMachine(error: Error): OnboardingMachine {
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 describe('CoreHost', () => {
+  it('applies browser changes to future provider operations', () => {
+    const { transport, send } = fakeTransport();
+    const provider = {
+      loginWithCredentials: vi.fn(),
+      openManualLogin: vi.fn(),
+      checkSession: vi.fn().mockResolvedValue(false),
+      setBrowserChoice: vi.fn(),
+    };
+    new CoreHost(transport, { paths, provider }).start();
+    send({ type: 'browser.setChoice', choice: 'chromium' });
+    expect(provider.setBrowserChoice).toHaveBeenCalledWith('chromium');
+  });
   it('posts the initial onboarding state when started', () => {
     const { transport, posted } = fakeTransport();
     new CoreHost(transport, { paths, machine: machine() }).start();

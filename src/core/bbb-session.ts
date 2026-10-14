@@ -1,4 +1,5 @@
 import { chromium, Browser, Page } from 'playwright';
+import { assertBrowserAvailable } from './browser-launch.js';
 import type { SessionConfig, BbbSession, SessionState } from './types.js';
 
 /**
@@ -8,14 +9,19 @@ export class PlaywrightBbbSessionManager {
   private browser: Browser | null = null;
   private sessions: Map<string, BbbSession> = new Map();
 
+  constructor(private readonly options: { channel?: 'msedge' } = {}) {}
+
   /**
    * Start a new browser session and navigate to BBB URL
    */
   async startSession(url: string, config: SessionConfig): Promise<BbbSession> {
     this.validateUrl(url);
 
+    await assertBrowserAvailable(this.options.channel);
+
     this.browser = await chromium.launch({
       headless: config.headless,
+      ...(this.options.channel ? { channel: this.options.channel } : {}),
     });
 
     const page = await this.browser.newPage();
@@ -36,7 +42,7 @@ export class PlaywrightBbbSessionManager {
       session.status = 'error';
       await page.close();
       throw new Error(
-        `Failed to start session: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to start session: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -47,7 +53,7 @@ export class PlaywrightBbbSessionManager {
   async joinAsListener(session: BbbSession): Promise<void> {
     if (session.status !== 'started') {
       throw new Error(
-        `Cannot join: session status is ${session.status}, expected 'started'`
+        `Cannot join: session status is ${session.status}, expected 'started'`,
       );
     }
 
@@ -74,7 +80,7 @@ export class PlaywrightBbbSessionManager {
     } catch (error) {
       session.status = 'error';
       throw new Error(
-        `Failed to join as listener: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to join as listener: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -85,7 +91,7 @@ export class PlaywrightBbbSessionManager {
   async monitorSession(session: BbbSession): Promise<SessionState> {
     if (session.status !== 'joined') {
       throw new Error(
-        `Cannot monitor: session status is ${session.status}, expected 'joined'`
+        `Cannot monitor: session status is ${session.status}, expected 'joined'`,
       );
     }
 
@@ -96,7 +102,7 @@ export class PlaywrightBbbSessionManager {
       const meetingStatus = await session.page.evaluate(() => {
         // Check if user is still in the meeting
         const disconnectButton = document.querySelector(
-          '[data-testid="leave-button"]'
+          '[data-testid="leave-button"]',
         );
         if (!disconnectButton) {
           return 'ended';
@@ -104,7 +110,7 @@ export class PlaywrightBbbSessionManager {
 
         // Check audio status
         const audioIndicator = document.querySelector(
-          '[data-testid="audio-connected"]'
+          '[data-testid="audio-connected"]',
         );
         return audioIndicator ? 'connected' : 'error';
       });
@@ -119,7 +125,7 @@ export class PlaywrightBbbSessionManager {
     } catch (error) {
       session.status = 'error';
       throw new Error(
-        `Failed to monitor session: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Failed to monitor session: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
     }
   }
@@ -143,7 +149,7 @@ export class PlaywrightBbbSessionManager {
       session.status = 'left';
     } catch (error) {
       console.warn(
-        `Warning while leaving session: ${error instanceof Error ? error.message : 'Unknown error'}`
+        `Warning while leaving session: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       session.status = 'left';
     } finally {
@@ -169,8 +175,9 @@ export class PlaywrightBbbSessionManager {
   private async disableMediaDevices(page: Page): Promise<void> {
     // Override getUserMedia to return empty streams
     await page.addInitScript(() => {
-      const originalGetUserMedia =
-        navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(
+        navigator.mediaDevices,
+      );
 
       navigator.mediaDevices.getUserMedia = async (constraints) => {
         const stream = new MediaStream();
@@ -217,11 +224,16 @@ export class PlaywrightBbbSessionManager {
   private validateUrl(url: string): void {
     try {
       const parsed = new URL(url);
-      if (!parsed.hostname.includes('bbb') && !parsed.hostname.includes('tusur')) {
+      if (
+        !parsed.hostname.includes('bbb') &&
+        !parsed.hostname.includes('tusur')
+      ) {
         throw new Error('URL does not appear to be a BigBlueButton instance');
       }
     } catch (error) {
-      throw new Error(`Invalid URL: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error(
+        `Invalid URL: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
     }
   }
 
@@ -234,7 +246,7 @@ export class PlaywrightBbbSessionManager {
         await this.leaveSession(session);
       } catch (error) {
         console.warn(
-          `Error closing session ${session.url}: ${error instanceof Error ? error.message : 'Unknown error'}`
+          `Error closing session ${session.url}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
       }
     }

@@ -83,6 +83,38 @@ afterEach(() => {
 });
 
 describe('CoreProcess request bridge', () => {
+  it('sends the initial browser choice before a queued session check', () => {
+    const fake = createFakeChild();
+    const core = new CoreProcess(
+      {
+        entryPath: '/entry.js',
+        userDataDir: '/data',
+        initialBrowserChoice: 'chromium',
+        fork: () => fake.child,
+      },
+      { onChanged: vi.fn(), onStatusChanged: vi.fn(), onNotification: vi.fn() },
+    );
+    core.start();
+    void core.checkSession();
+    fake.emitMessage({ type: 'host.ready' });
+    expect(fake.posted.slice(0, 2)).toEqual([
+      { type: 'browser.setChoice', choice: 'chromium' },
+      { type: 'onboarding.checkSession' },
+    ]);
+    fake.emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'credentials' },
+    });
+  });
+
+  it('sends a changed browser choice to a running worker', () => {
+    const { core, posted } = createProcess();
+    core.setBrowserChoice('chromium');
+    expect(posted).toContainEqual({
+      type: 'browser.setChoice',
+      choice: 'chromium',
+    });
+  });
   it('coalesces a second concurrent state request into the first', async () => {
     const { core, emitMessage, posted } = createProcess();
 

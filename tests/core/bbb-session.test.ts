@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { SessionConfig } from '../../src/core/types.js';
+import { chromium } from 'playwright';
+
+vi.mock('../../src/core/browser-launch.js', () => ({
+  assertBrowserAvailable: vi.fn().mockResolvedValue(undefined),
+}));
 
 // Mock Playwright first, before any imports
 vi.mock('playwright', () => ({
@@ -37,6 +42,17 @@ describe('PlaywrightBbbSessionManager', () => {
   });
 
   describe('startSession', () => {
+    it('uses Edge when requested by the caller', async () => {
+      manager = new PlaywrightBbbSessionManager({ channel: 'msedge' });
+      await manager.startSession(
+        'https://bbb2.tusur.ru/meeting123',
+        mockConfig,
+      );
+      expect(chromium.launch).toHaveBeenLastCalledWith({
+        headless: false,
+        channel: 'msedge',
+      });
+    });
     it('should start a browser session with valid URL', async () => {
       const url = 'https://bbb2.tusur.ru/meeting123';
 
@@ -52,7 +68,7 @@ describe('PlaywrightBbbSessionManager', () => {
       const invalidUrl = 'not-a-url';
 
       await expect(
-        manager.startSession(invalidUrl, mockConfig)
+        manager.startSession(invalidUrl, mockConfig),
       ).rejects.toThrow('Invalid URL');
     });
   });
@@ -80,7 +96,7 @@ describe('PlaywrightBbbSessionManager', () => {
       };
 
       await expect(manager.joinAsListener(session)).rejects.toThrow(
-        'Cannot join'
+        'Cannot join',
       );
     });
   });

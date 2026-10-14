@@ -3,6 +3,10 @@ import { SdoMcpClient } from '@core/core/mcp-client.js';
 import { isSdoMcpUnavailableError } from '@core/core/mcp-errors.js';
 import type { McpConfig } from '@core/core/types.js';
 import type { LoginOutcome } from '../shared/onboarding.js';
+import {
+  browserChannel,
+  type BrowserChoice,
+} from '../shared/browser-choice.js';
 import type { LoginCredentials, SessionProvider } from './session-provider.js';
 
 export type SdoLoginResult = { status: string };
@@ -20,7 +24,16 @@ function toOutcome(result: SdoLoginResult): LoginOutcome {
  * to `SDO_AUTH_STATE_PATH`.
  */
 export class SdoMcpSessionProvider implements SessionProvider {
-  constructor(private readonly config: McpConfig = loadMcpConfig()) {}
+  private browserChoice: BrowserChoice | undefined;
+
+  constructor(
+    private readonly config: McpConfig = loadMcpConfig(),
+    private readonly externalChannel?: string,
+  ) {}
+
+  setBrowserChoice(choice: BrowserChoice): void {
+    this.browserChoice = choice;
+  }
 
   private clientFor(input: {
     authStatePath: string;
@@ -32,6 +45,11 @@ export class SdoMcpSessionProvider implements SessionProvider {
       ...this.config,
       env: {
         ...this.config.env,
+        ...(this.externalChannel !== undefined
+          ? { SDO_BROWSER_CHANNEL: this.externalChannel }
+          : this.browserChoice !== undefined
+            ? { SDO_BROWSER_CHANNEL: browserChannel(this.browserChoice) ?? '' }
+            : {}),
         SDO_AUTH_STATE_PATH: input.authStatePath,
         ...(input.username !== undefined
           ? { SDO_USERNAME: input.username }

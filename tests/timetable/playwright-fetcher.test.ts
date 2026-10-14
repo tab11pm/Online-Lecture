@@ -5,6 +5,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { chromium } from 'playwright';
 import { createPlaywrightFetcher } from '../../src/timetable/playwright-fetcher.js';
 
+vi.mock('../../src/core/browser-launch.js', () => ({
+  assertBrowserAvailable: vi.fn().mockResolvedValue(undefined),
+}));
+
 vi.mock('playwright', () => ({
   chromium: {
     launch: vi.fn(),
@@ -43,6 +47,16 @@ describe('createPlaywrightFetcher', () => {
       'corrupt storage state',
     );
     expect(browser.close).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses Edge when requested by the caller', async () => {
+    const browser = {
+      newContext: vi.fn().mockResolvedValue({ close: vi.fn() }),
+      close: vi.fn(),
+    };
+    vi.mocked(chromium.launch).mockResolvedValueOnce(browser as never);
+    await createPlaywrightFetcher({ authStatePath, channel: 'msedge' });
+    expect(chromium.launch).toHaveBeenLastCalledWith({ channel: 'msedge' });
   });
 
   it('returns the raw JSON body instead of the browser JSON-viewer markup', async () => {

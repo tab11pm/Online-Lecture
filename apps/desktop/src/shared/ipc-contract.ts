@@ -1,4 +1,5 @@
 import type { LoginOutcome, OnboardingState } from './onboarding.js';
+import type { BrowserChoice, BrowserView } from './browser-choice.js';
 
 export interface AppInfo {
   version: string;
@@ -29,6 +30,10 @@ export const CHANNELS = {
   },
   app: {
     getInfo: 'app:getInfo',
+    getBrowser: 'app:getBrowser',
+    setBrowser: 'app:setBrowser',
+    installChromium: 'app:installChromium',
+    browserChanged: 'app:browserChanged',
     setAutostart: 'app:setAutostart',
     quit: 'app:quit',
   },
@@ -51,6 +56,10 @@ export interface DesktopApi {
   };
   app: {
     getInfo(): Promise<AppInfo>;
+    getBrowser(): Promise<BrowserView>;
+    setBrowser(choice: BrowserChoice): Promise<BrowserView>;
+    installChromium(): Promise<BrowserView>;
+    onBrowserChanged(listener: (view: BrowserView) => void): () => void;
     setAutostart(enabled: boolean): Promise<AppInfo>;
     quit(): Promise<void>;
   };

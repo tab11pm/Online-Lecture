@@ -5,6 +5,7 @@ import type {
 } from '../shared/ipc-contract.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
+import type { BrowserChoice } from '../shared/browser-choice.js';
 
 export const REQUEST_TIMEOUT_MS = 120_000;
 
@@ -36,6 +37,8 @@ export interface CoreChild {
 export interface CoreProcessOptions {
   entryPath: string;
   userDataDir: string;
+  initialBrowserChoice?: BrowserChoice;
+  externalChannel?: string;
   fork(entryPath: string, args: string[]): CoreChild;
 }
 
@@ -74,8 +77,16 @@ export class CoreProcess {
     }
     this.setStatus('starting');
     this.ready = false;
+    if (this.options.initialBrowserChoice) {
+      this.queued.unshift({
+        type: 'browser.setChoice',
+        choice: this.options.initialBrowserChoice,
+      });
+    }
     const child = this.options.fork(this.options.entryPath, [
       this.options.userDataDir,
+      this.options.externalChannel === undefined ? '0' : '1',
+      this.options.externalChannel ?? '',
     ]);
     this.child = child;
     child.on('message', (message) => {
@@ -133,6 +144,12 @@ export class CoreProcess {
       { type: 'onboarding.openManualSso' },
       MANUAL_SSO_REQUEST_TIMEOUT_MS,
     );
+  }
+
+  setBrowserChoice(choice: BrowserChoice): void {
+    this.options.initialBrowserChoice = choice;
+    this.ensureStarted();
+    this.post({ type: 'browser.setChoice', choice });
   }
 
   private ensureStarted(): void {

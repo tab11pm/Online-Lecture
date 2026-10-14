@@ -15,6 +15,41 @@ afterEach(() => {
 });
 
 describe('SdoMcpSessionProvider', () => {
+  it('uses Chromium for later MCP clients after a choice change', async () => {
+    const channels: unknown[] = [];
+    vi.spyOn(SdoMcpClient.prototype, 'login').mockImplementation(
+      async function () {
+        channels.push(
+          (this as unknown as { config: { env?: NodeJS.ProcessEnv } }).config
+            .env?.SDO_BROWSER_CHANNEL,
+        );
+        return { status: 'logged_in' };
+      },
+    );
+    vi.spyOn(SdoMcpClient.prototype, 'close').mockResolvedValue(undefined);
+    const provider = new SdoMcpSessionProvider(config);
+    provider.setBrowserChoice('edge');
+    await provider.loginWithCredentials(input);
+    provider.setBrowserChoice('chromium');
+    await provider.loginWithCredentials(input);
+    expect(channels).toEqual(['msedge', '']);
+  });
+
+  it('preserves an explicit empty external channel', async () => {
+    let channel: unknown;
+    vi.spyOn(SdoMcpClient.prototype, 'login').mockImplementation(
+      async function () {
+        channel = (this as unknown as { config: { env?: NodeJS.ProcessEnv } })
+          .config.env?.SDO_BROWSER_CHANNEL;
+        return { status: 'logged_in' };
+      },
+    );
+    vi.spyOn(SdoMcpClient.prototype, 'close').mockResolvedValue(undefined);
+    const provider = new SdoMcpSessionProvider(config, '');
+    provider.setBrowserChoice('edge');
+    await provider.loginWithCredentials(input);
+    expect(channel).toBe('');
+  });
   it('maps a successful sdo_login to { ok: true }', async () => {
     const login = vi
       .spyOn(SdoMcpClient.prototype, 'login')
