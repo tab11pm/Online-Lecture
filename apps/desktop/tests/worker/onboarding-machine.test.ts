@@ -176,4 +176,17 @@ describe('OnboardingMachine', () => {
       expect(onError).toHaveBeenNthCalledWith(2, broken);
     });
   });
+
+  it('requireLogin returns to credentials with the expiry message', async () => {
+    const m = machine();
+    const seen: unknown[] = [];
+    m.onChange((s) => seen.push(s));
+    await m.checkSession();
+    m.requireLogin('Сессия ТУСУР истекла. Войдите снова.');
+    expect(m.getState()).toEqual({
+      phase: 'credentials',
+      error: 'Сессия ТУСУР истекла. Войдите снова.',
+    });
+    expect(seen.at(-1)).toEqual(m.getState());
+  });
 });

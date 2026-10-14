@@ -136,6 +136,11 @@ export class OnboardingMachine {
     return this.state;
   }
 
+  /** The stored session stopped working: go back to the login form. */
+  requireLogin(message: string): void {
+    this.setState({ phase: 'credentials', error: message });
+  }
+
   /**
    * SDO MCP failing to start is not a login problem: show why instead of the
    * login form. Any other failure returns to the form with `fallback`.
