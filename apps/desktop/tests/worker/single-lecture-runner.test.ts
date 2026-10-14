@@ -193,4 +193,21 @@ describe('SingleLectureRunner', () => {
     expect(runJob).toHaveBeenCalledTimes(1);
     expect(runner.active).toBeUndefined();
   });
+
+  it('stop removes a queued occurrence so it never launches', async () => {
+    const gate = deferred<RunResult>();
+    const runJob = vi.fn(() => gate.promise);
+    const runner = new SingleLectureRunner({
+      runJob,
+      onChange: vi.fn(),
+      onAuthRequired: vi.fn(),
+    });
+    await runner.start(occ('a'));
+    await runner.start(occ('b'));
+    await runner.stop(occ('b'), 'manual');
+    expect(runner.active?.id).toBe('a');
+    gate.resolve(result('a'));
+    expect(await runner.whenIdle(500)).toBe(true);
+    expect(runJob).toHaveBeenCalledTimes(1);
+  });
 });

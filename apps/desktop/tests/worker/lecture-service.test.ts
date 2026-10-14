@@ -288,6 +288,14 @@ describe('LectureService', () => {
     const runs = await withStore(({ runs }) => runs.listAll());
     expect(runs[0]?.status).toBe('connected');
     expect(last()?.agenda).toEqual([]);
+    expect(service.getView().current).toMatchObject({
+      jobId: 'tt:fake:demo:1',
+      occurrenceId: runs[0]?.occurrenceId,
+      title: 'Демонстрационная лекция',
+      status: 'connected',
+    });
+    await service.stopCurrent();
+    expect(service.getView().current).toBeUndefined();
   });
 
   it('stops scheduling after deactivate', async () => {
@@ -381,5 +389,57 @@ describe('LectureService', () => {
     await vi.waitFor(() => expect(last()?.lastRun).toBeDefined());
     expect(JSON.stringify(service.getView())).not.toContain('http');
     expect(JSON.stringify(last())).not.toContain('http');
+  });
+
+  it('keeps one lecture across deactivate and activate', async () => {
+    const fake = createFakeLectureAdapters(() => clock);
+    let inFlight = 0;
+    let maxInFlight = 0;
+    const runJob = vi.fn(
+      async (
+        ...args: Parameters<LectureAdapters['runJob']>
+      ): Promise<RunResult> => {
+        inFlight += 1;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        try {
+          return await fake.runJob(...args);
+        } finally {
+          inFlight -= 1;
+        }
+      },
+    );
+    const { service, last } = setup({ runJob });
+    await service.open();
+    service.activate('login');
+    await connected(last);
+    await seed(jobAt(new Date(START.getTime() - 60_000), 90, 'tt:seed:2'));
+    service.deactivate();
+    service.activate('startup');
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(runJob).toHaveBeenCalledTimes(1);
+    expect(maxInFlight).toBe(1);
+  });
+
+  it('skipping a queued occurrence prevents its launch', async () => {
+    const fake = createFakeLectureAdapters(() => clock);
+    const runJob = vi.fn(fake.runJob);
+    const { service, last } = setup({ runJob });
+    await service.open();
+    service.activate('login');
+    await connected(last);
+    await seed(jobAt(new Date(START.getTime() - 60_000), 90, 'tt:seed:2'));
+    await vi.advanceTimersByTimeAsync(30_000);
+    const queued = service
+      .getView()
+      .agenda.find((item) => item.jobId === 'tt:seed:2');
+    expect(queued?.runStatus).toBe('scheduled');
+    await service.setSkipped(queued!.jobId, queued!.occurrenceId, true);
+    await service.stopCurrent();
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(runJob).toHaveBeenCalledTimes(1);
+    const view = service.getView();
+    expect(
+      view.agenda.find((item) => item.jobId === 'tt:seed:2'),
+    ).toMatchObject({ skipped: true, runStatus: 'skipped' });
   });
 });

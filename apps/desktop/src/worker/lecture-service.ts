@@ -80,21 +80,17 @@ interface Repositories {
   store: SqliteStore;
   jobs: SqliteJobRepository;
   runs: SqliteRunRepository;
-  meta: SqliteMetaRepository;
   imports: ImportScheduler;
-}
-
-interface Activation {
   runner: SingleLectureRunner;
   loop: SchedulerLoop;
 }
 
-/** Owns the lecture database, the scheduler loop, timetable imports and the active run. */
+/** Owns the lecture database, the scheduler loop, timetable imports and the one lecture runner. */
 export class LectureService {
   private repos: Repositories | undefined;
-  private activation: Activation | undefined;
-  /** Runners of earlier activations whose lecture is still running. */
-  private readonly draining = new Set<SingleLectureRunner>();
+  private active = false;
+  /** Title of the running occurrence, kept in case an import removes its job. */
+  private launched: { occurrenceId: string; title: string } | undefined;
   private browser: LectureBrowserOptions = { headless: false };
   private snapshot: { jobs: Job[]; runs: Run[] } = { jobs: [], runs: [] };
 
@@ -120,7 +116,7 @@ export class LectureService {
         }
         return result;
       },
-      isLectureActive: () => this.lectureActive(),
+      isLectureActive: () => runner.active !== undefined,
       lastSuccessAt: () => {
         const value = meta.get(LAST_IMPORT_KEY);
         const parsed = value === undefined ? NaN : Date.parse(value);
@@ -128,39 +124,35 @@ export class LectureService {
       },
       now: () => this.deps.now(),
       onView: (view) => {
-        if (view.status === 'done') void this.activation?.loop.tick();
+        if (view.status === 'done' && this.active) void loop.tick();
         void this.publish();
       },
       onAuthRequired: () => this.deps.onAuthRequired(),
     });
-    this.repos = { store, jobs, runs, meta, imports };
-    await this.publish();
-  }
-
-  activate(trigger: 'login' | 'startup'): void {
-    const repos = this.requireRepos();
-    if (this.activation) return;
     let wasActive = false;
     const runner: SingleLectureRunner = new SingleLectureRunner({
-      runJob: (jobId, occurrenceId, signal) =>
-        this.deps.adapters.runJob(
-          repos.jobs,
-          repos.runs,
+      runJob: async (jobId, occurrenceId, signal) => {
+        const job = await jobs.getById(jobId);
+        const title = job?.origin?.discipline ?? jobId;
+        this.launched = { occurrenceId, title };
+        return this.deps.adapters.runJob(
+          jobs,
+          runs,
           jobId,
           occurrenceId,
           signal,
           this.browser,
-        ),
+        );
+      },
       onChange: () => {
-        const active = runner.active !== undefined;
-        if (!active) this.draining.delete(runner);
-        if (wasActive && !active) repos.imports.lectureFinished();
-        wasActive = active;
+        const running = runner.active !== undefined;
+        if (wasActive && !running) imports.lectureFinished();
+        wasActive = running;
         void this.publish();
       },
       onAuthRequired: () => this.deps.onAuthRequired(),
     });
-    const scheduler = new Scheduler(repos.jobs, repos.runs, runner);
+    const scheduler = new Scheduler(jobs, runs, runner);
     const loop = new SchedulerLoop({
       check: async (now) => {
         await scheduler.check(now);
@@ -169,21 +161,25 @@ export class LectureService {
       now: () => this.deps.now(),
       onError: (error) => this.logError('scheduler', error),
     });
-    this.activation = { runner, loop };
-    loop.start();
+    this.repos = { store, jobs, runs, imports, runner, loop };
+    await this.publish();
+  }
+
+  activate(trigger: 'login' | 'startup'): void {
+    const repos = this.requireRepos();
+    if (this.active) return;
+    this.active = true;
+    repos.loop.start();
     repos.imports.start(trigger);
     void this.publish();
   }
 
+  /** Stops scheduling and imports; the running lecture and the queue continue. */
   deactivate(): void {
-    const activation = this.activation;
-    if (!activation) return;
-    this.activation = undefined;
-    activation.loop.stop();
+    if (!this.active) return;
+    this.active = false;
+    this.repos?.loop.stop();
     this.repos?.imports.stop();
-    activation.runner.close();
-    // The running lecture continues to its own end.
-    if (activation.runner.active) this.draining.add(activation.runner);
     void this.publish();
   }
 
@@ -208,6 +204,9 @@ export class LectureService {
         leaveAt: current.leaveAtIso,
         status: current.run.status,
       };
+    } else {
+      const orphan = this.orphanedCurrent();
+      if (orphan) view.current = orphan;
     }
     if (agenda.next) view.next = toItem(agenda.next);
     const last = agenda.lastRun;
@@ -229,7 +228,7 @@ export class LectureService {
   }
 
   async stopCurrent(): Promise<void> {
-    await Promise.all(this.runners().map((runner) => runner.stopCurrent()));
+    await this.repos?.runner.stopCurrent();
     await this.publish();
   }
 
@@ -244,10 +243,15 @@ export class LectureService {
     // Validates the occurrence before anything is stopped.
     setOccurrenceSuppressed(job, occurrenceId, skipped);
     if (skipped) {
-      await Promise.all(
-        this.runners()
-          .filter((runner) => runner.active?.id === occurrenceId)
-          .map((runner) => runner.stopCurrent()),
+      // Aborts the occurrence if it runs, or drops it from the queue.
+      await repos.runner.stop(
+        { id: occurrenceId, jobId, joinAt: '', leaveAt: '', timezone: '' },
+        'manual',
+      );
+      await repos.runs.skipScheduled(
+        jobId,
+        occurrenceId,
+        this.deps.now().toISOString(),
       );
     }
     const latest = (await repos.jobs.getById(jobId)) ?? job;
@@ -262,31 +266,42 @@ export class LectureService {
   }
 
   resumed(): void {
-    void this.activation?.loop.tick();
+    if (this.active) void this.repos?.loop.tick();
   }
 
   async shutdown(timeoutMs: number): Promise<void> {
     this.deactivate();
-    const runners = this.runners();
-    for (const runner of runners) void runner.stopCurrent();
-    const idle = await Promise.all(
-      runners.map((runner) => runner.whenIdle(timeoutMs)),
-    );
-    if (idle.every(Boolean) && this.repos) {
-      this.repos.store.close();
+    const repos = this.repos;
+    if (!repos) return;
+    repos.runner.close();
+    void repos.runner.stopCurrent();
+    if (await repos.runner.whenIdle(timeoutMs)) {
+      repos.store.close();
       this.repos = undefined;
     }
   }
 
-  private runners(): SingleLectureRunner[] {
-    return [
-      ...(this.activation ? [this.activation.runner] : []),
-      ...this.draining,
-    ];
-  }
-
-  private lectureActive(): boolean {
-    return this.runners().some((runner) => runner.active !== undefined);
+  /** The running lecture whose job an import removed from the agenda. */
+  private orphanedCurrent(): LecturesView['current'] {
+    const occurrence = this.repos?.runner.active;
+    if (!occurrence) return undefined;
+    const run = this.snapshot.runs.find(
+      (entry) =>
+        entry.jobId === occurrence.jobId &&
+        entry.occurrenceId === occurrence.id,
+    );
+    if (!run) return undefined;
+    const title =
+      this.launched?.occurrenceId === occurrence.id
+        ? this.launched.title
+        : occurrence.jobId;
+    return {
+      jobId: occurrence.jobId,
+      occurrenceId: occurrence.id,
+      title,
+      leaveAt: occurrence.leaveAt,
+      status: run.status,
+    };
   }
 
   private requireRepos(): Repositories {
