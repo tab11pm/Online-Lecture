@@ -1,211 +1,120 @@
-# Lecture Running Specification
-
 ## ADDED Requirements
 
-### REQ-BBB-001: Session Lifecycle States
+### Requirement: Продолжать активную лекцию после подключения
 
-The system SHALL support the following BBB session states:
+Система SHALL продолжать наблюдение за подключённой сессией до подтверждённого терминального события, deadline или отмены.
 
-- `waiting_room`: User has joined BBB but moderator has not started the meeting
-- `connecting`: Initial connection in progress
-- `connected`: User successfully joined as listener
-- `reconnecting`: Network error, attempting retry
-- `leaving`: Session cleanup in progress
-- `completed`: Session finished successfully
-- `failed`: Session ended with errors
-- `blocked`: Session cannot start (auth, ambiguous search)
-- `skipped`: Session window already closed
+#### Scenario: Подключение не завершает запуск
 
-**Rationale:** Required for proper session management and user feedback.
+- **WHEN** BBB подтверждает listen-only подключение и следующее наблюдение остаётся `connected`
+- **THEN** система сохраняет активное состояние `connected` и продолжает наблюдение
+- **AND** система не сохраняет `meeting_ended` только из-за успешного наблюдения
 
-**Scenarios:**
+### Requirement: Сохранять подтверждённые состояния через явные переходы
 
-#### Scenario: User joins waiting room
+Система SHALL сохранять изменения только через явные переходы существующих `RunStatus` и SHALL фиксировать `waiting_room` и `connected` только после соответствующего положительного BBB-сигнала.
 
-Given a scheduled lecture with `joinAt: 10:00`
-When the current time is `10:00` and moderator has not started
-Then the session state SHALL be `waiting_room`
-And the system SHALL wait for moderator to start
+#### Scenario: Ожидание модератора и последующее подключение
 
-#### Scenario: Moderator starts meeting
+- **WHEN** BBB сообщает ожидание модератора, а затем подтверждает listen-only подключение
+- **THEN** система сохраняет переходы в `waiting_room`, затем в `connected`
+- **AND** каждый переход передаётся функции сохранения
 
-Given a session in `waiting_room` state
-When moderator starts the meeting
-Then the session state SHALL transition to `connected`
-And audio SHALL be in listen-only mode
+### Requirement: Обеспечивать жёсткий deadline
 
----
+Система SHALL прекращать подключение, наблюдение и повторы при достижении `leaveAt`, закрывать сессию и сохранять `completed` с причиной `deadline`.
 
-### REQ-BBB-002: Deadline Enforcement
+#### Scenario: Deadline в активном состоянии
 
-The system SHALL enforce a hard `leaveAt` deadline.
+- **WHEN** часы достигают `leaveAt` в состоянии `waiting_room` или `connected`
+- **THEN** система прекращает активные операции и закрывает браузер
+- **AND** система сохраняет `leaving`, затем `completed` с причиной `deadline`
 
-**Requirements:**
-- The system SHALL check the deadline on each monitoring iteration
-- When `now >= leaveAt`, the session SHALL transition to `leaving` state
-- The `completionReason` SHALL be set to `deadline`
-- No new connections SHALL be attempted after the deadline
+#### Scenario: Deadline во время задержки повтора
 
-**Rationale:** SPEC.md requires hard deadline enforcement.
+- **WHEN** контроллер ожидает технический повтор и часы достигают `leaveAt`
+- **THEN** система не начинает `reconnect` и закрывает сессию
+- **AND** система завершает запуск с причиной `deadline`
 
-**Scenarios:**
+#### Scenario: Начало запуска после deadline
 
-#### Scenario: Deadline reached during waiting room
+- **WHEN** время перед началом браузерной операции равно или больше `leaveAt`
+- **THEN** система не начинает `join`, `observe` или `reconnect`
+- **AND** система завершает запуск с причиной `deadline`
 
-Given a session in `waiting_room` state
-When `now >= leaveAt`
-Then the session SHALL transition to `leaving`
-And the `completionReason` SHALL be `deadline`
+### Requirement: Ограничивать технические повторы
 
-#### Scenario: Deadline reached during connected
+Система SHALL повторять технические ошибки не более трёх раз после задержек 5, 15 и 30 секунд, только до deadline и при отсутствии отмены.
 
-Given a session in `connected` state
-When `now >= leaveAt`
-Then the session SHALL transition to `leaving`
-And the `completionReason` SHALL be `deadline`
+#### Scenario: Исчерпание повторов
 
-#### Scenario: Before deadline, session continues
+- **WHEN** исходная попытка и все три технических повтора завершаются ошибкой
+- **THEN** система использует задержки ровно 5, 15 и 30 секунд и сохраняет переходы `reconnecting` и `joining` для каждой попытки
+- **AND** после четвёртой ошибки система закрывает браузер и сохраняет `failed` с причиной `error`
 
-Given a session in `connected` state
-When `now < leaveAt`
-Then the session SHALL remain in `connected` state
-And monitoring SHALL continue
+### Requirement: Завершать встречу по положительному сигналу
 
----
+Система SHALL использовать причину `meeting_ended` только при положительном BBB-сигнале окончания встречи.
 
-### REQ-BBB-003: Retry Policy
+#### Scenario: Подтверждённое окончание
 
-The system SHALL implement retry logic with delays of 5, 15, and 30 seconds.
+- **WHEN** адаптер сообщает подтверждённый сигнал `meeting_ended`
+- **THEN** система закрывает сессию и сохраняет `leaving`, затем `completed` с причиной `meeting_ended`
 
-**Requirements:**
-- On network error, the system SHALL retry up to 3 times
-- Attempt 0: 5 second delay
-- Attempt 1: 15 second delay
-- Attempt 2: 30 second delay
-- Attempt 3: FAIL, transition to `failed` state with `completionReason: error`
+### Requirement: Завершать удаление модератором без повторов
 
-**Rationale:** SPEC.md specifies 5/15/30 retry policy.
+Система SHALL сохранять подтверждённое удаление модератором как терминальный статус `blocked` после закрытия сессии и SHALL не инициировать технический повтор. `blocked` SHALL не использоваться как `CompletionReason`.
 
-**Scenarios:**
+#### Scenario: Положительный сигнал удаления
 
-#### Scenario: Network error, first retry
+- **WHEN** адаптер сообщает подтверждённое `moderator_removed` во время подключения, ожидания или активной встречи
+- **THEN** система закрывает сессию и сохраняет терминальный `blocked` через явные переходы
+- **AND** система не вызывает задержку повтора или `reconnect`
 
-Given a session in `connected` state
-When a network error occurs
-Then the system SHALL transition to `reconnecting` state
-And wait 5 seconds before retrying
+#### Scenario: Отсутствующая кнопка
 
-#### Scenario: Network error, second retry
+- **WHEN** кнопка отсутствует или страница показывает общий disconnected-экран без положительного сигнала удаления
+- **THEN** система не распознаёт `moderator_removed` и не сохраняет `blocked` на этом основании
 
-Given a session in `reconnecting` state (attempt 1)
-When the retry fails
-Then the system SHALL wait 15 seconds before next retry
-And increment retry counter to 2
+### Requirement: Отменять запуск с завершённой очисткой
 
-#### Scenario: Network error, third retry
+Система SHALL обрабатывать ручную отмену через `AbortSignal`, закрывать браузер и только затем завершать запуск как `completed` с причиной `manual`. SIGINT и SIGTERM SHALL использовать тот же путь.
 
-Given a session in `reconnecting` state (attempt 2)
-When the retry fails
-Then the system SHALL wait 30 seconds before next retry
-And increment retry counter to 3
+#### Scenario: Сигнал во время активного запуска
 
-#### Scenario: All retries exhausted
+- **WHEN** CLI получает SIGINT или SIGTERM либо вызывается ручная остановка
+- **THEN** система отменяет активные операции и ожидает завершения закрытия браузера
+- **AND** система сохраняет `completed` с причиной `manual` без преждевременного `process.exit()`
 
-Given a session in `reconnecting` state (attempt 3)
-When the retry fails
-Then the system SHALL transition to `failed` state
-And set `completionReason` to `error`
+#### Scenario: Повторная очистка
 
----
+- **WHEN** несколько путей завершения запрашивают очистку одной сессии
+- **THEN** очистка остаётся идемпотентной и не запускает повторное подключение
 
-### REQ-BBB-004: Graceful Shutdown
+### Requirement: Использовать проверенные наблюдения без секретов
 
-The system SHALL handle SIGINT and SIGTERM signals gracefully.
+Система SHALL распознавать waiting-room, meeting-ended и moderator removal в производственном адаптере только по подтверждённым селекторам или доступному тексту, записанным в несекретных DOM-фикстурах. Неподтверждённые сигналы SHALL оставаться неподдерживаемыми до выполнения этой зависимости.
 
-**Requirements:**
-- On SIGINT/SIGTERM, the system SHALL initiate graceful shutdown
-- Current session SHALL transition to `leaving` state
-- The `completionReason` SHALL be set to `manual`
-- BBB session SHALL be properly closed before exit
+#### Scenario: Селектор не подтверждён
 
-**Rationale:** SPEC.md requires proper handling of process signals.
+- **WHEN** точный BBB-селектор или доступный текст для терминального сигнала ещё не подтверждён
+- **THEN** адаптер оставляет наблюдение неподдерживаемым и не угадывает его по косвенным признакам
 
-**Scenarios:**
+### Requirement: Сохранять отключённые камеру и микрофон
 
-#### Scenario: User sends SIGINT during session
+Система SHALL оставлять камеру и микрофон отключёнными при каждом исходном подключении и техническом повторе.
 
-Given a session in `connected` state
-When the process receives SIGINT
-Then the system SHALL transition to `leaving` state
-And set `completionReason` to `manual`
-And close the BBB session cleanly
+#### Scenario: Повторное подключение безопасно
 
----
+- **WHEN** адаптер выполняет исходное подключение или технический повтор
+- **THEN** камера и микрофон остаются отключёнными
 
-### REQ-BBB-005: Meeting End Detection
+### Requirement: Проверять жизненный цикл локально без секретов
 
-The system SHALL detect when the meeting ends normally.
+Автоматические проверки системы SHALL выполняться без реальных учётных данных, сети университета и живых лекций.
 
-**Requirements:**
-- The system SHALL monitor for BBB "meeting ended" event
-- When detected, transition to `leaving` state
-- Set `completionReason` to `meeting_ended`
+#### Scenario: Автоматическая проверка адаптера
 
-**Scenarios:**
-
-#### Scenario: Moderator ends meeting
-
-Given a session in `connected` state
-When moderator ends the meeting
-Then the system SHALL detect meeting end
-And transition to `leaving` state
-And set `completionReason` to `meeting_ended`
-
----
-
-### REQ-BBB-006: Moderator Removal Detection
-
-The system SHALL detect when the moderator removes the user.
-
-**Requirements:**
-- The system SHALL monitor for BBB "you were removed" event
-- When detected, transition to `leaving` state
-- Set `completionReason` to `blocked` (per SPEC: "удаление модератором не вызывает повторный вход")
-
-**Scenarios:**
-
-#### Scenario: Moderator removes user
-
-Given a session in `connected` state
-When moderator removes the user
-Then the system SHALL detect the removal
-And transition to `leaving` state
-And set `completionReason` to `blocked`
-And SHALL NOT attempt reconnection
-
----
-
-## MODIFIED Requirements
-
-### REQ-CLI-001: Job Execution
-
-The `run-job` command SHALL be modified to:
-- Accept `Occurrence` with `leaveAt` parameter
-- Pass `leaveAt` to BBB session monitor
-- Handle `reconnecting`, `deadline_reached`, `manual_stop` events
-
-**Original:** Simple join/leave without monitoring.
-
-**Updated:** Full lifecycle with monitoring and retry.
-
----
-
-## REMOVED Requirements
-
-*None for this change.*
-
----
-
-## Dependencies
-
-- `build-core-cli` MUST be applied first (existing dependency)
+- **WHEN** выполняются тесты BBB-адаптера
+- **THEN** тесты используют локальные фикстуры без URL с секретами, cookies и session tokens
+- **AND** тесты не обращаются к живой лекции или университетской сети
