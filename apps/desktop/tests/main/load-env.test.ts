@@ -91,6 +91,11 @@ describe('loadEnvFiles', () => {
 });
 
 describe('applyDesktopServerDefaults', () => {
+  it('selects bundled Chromium when requested on Windows', () => {
+    const env: NodeJS.ProcessEnv = {};
+    applyDesktopServerDefaults(env, 'win32', 'chromium');
+    expect(env.SDO_BROWSER_CHANNEL).toBe('');
+  });
   it('sets msedge on Windows when the channel is not defined', () => {
     const env: NodeJS.ProcessEnv = {};
 

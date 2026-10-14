@@ -46,6 +46,12 @@ export class ChromiumInstaller {
   }
 
   private publish(state: BrowserInstallState): BrowserInstallState {
+    if (
+      this.state.status === state.status &&
+      this.state.message === state.message
+    ) {
+      return this.state;
+    }
     this.state = state;
     this.options.onChanged?.(state);
     return state;

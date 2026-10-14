@@ -4,8 +4,11 @@ import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
 import { CHANNELS } from '../shared/ipc-contract.js';
 import type { AppInfo, LoginInput } from '../shared/ipc-contract.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
+import type { BrowserChoice } from '../shared/browser-choice.js';
 import { setAutostart as applyAutostart } from './autostart.js';
 import { CoreProcess } from './core-process.js';
+import { BrowserController } from './browser-controller.js';
+import { ChromiumInstaller } from './chromium-installer.js';
 import { registerIpc } from './ipc.js';
 import {
   applyDesktopServerDefaults,
@@ -34,7 +37,7 @@ loadEnvFiles([
   process.cwd(),
   ...(workspaceRoot ? [workspaceRoot] : []),
 ]);
-applyDesktopServerDefaults(process.env, process.platform);
+const externalBrowserChannel = process.env.SDO_BROWSER_CHANNEL;
 
 const startHidden = process.argv.includes('--hidden');
 
@@ -86,12 +89,21 @@ void app.whenReady().then(async () => {
   );
   const settingsStore = new SettingsStore(paths.settings);
   const settings = await settingsStore.read();
+  const initialBrowserChoice =
+    settings.browser ?? (process.platform === 'win32' ? 'edge' : 'chromium');
+  applyDesktopServerDefaults(
+    process.env,
+    process.platform,
+    initialBrowserChoice,
+  );
   applyAutostart(app, settings.autostart);
 
   core = new CoreProcess(
     {
       entryPath: fileURLToPath(new URL('./entry.js', import.meta.url)),
       userDataDir: paths.root,
+      initialBrowserChoice,
+      externalChannel: externalBrowserChannel,
       fork: (entryPath, args) => utilityProcess.fork(entryPath, args),
     },
     {
@@ -104,6 +116,23 @@ void app.whenReady().then(async () => {
   );
   const appCore = core;
   appCore.start();
+  let browserController: BrowserController | undefined;
+  const installer = new ChromiumInstaller({
+    onChanged: () => {
+      void browserController
+        ?.getBrowser()
+        .then((view) => broadcast(CHANNELS.app.browserChanged, view));
+    },
+  });
+  browserController = new BrowserController({
+    settings: settingsStore,
+    installer,
+    core: appCore,
+    platform: process.platform,
+    externalChannel: externalBrowserChannel,
+    onChanged: (view) => broadcast(CHANNELS.app.browserChanged, view),
+  });
+  const browser = browserController;
   const handleLogin = createLoginHandler({
     secretStore,
     settingsStore,
@@ -115,13 +144,26 @@ void app.whenReady().then(async () => {
     handlers: {
       [CHANNELS.onboarding.getState]: (): Promise<OnboardingState> =>
         appCore.getState(),
-      [CHANNELS.onboarding.login]: (input: LoginInput): Promise<LoginOutcome> =>
-        handleLogin(input),
-      [CHANNELS.onboarding.openManualSso]: (): Promise<LoginOutcome> =>
-        appCore.openManualSso(),
-      [CHANNELS.onboarding.checkSession]: (): Promise<OnboardingState> =>
-        appCore.checkSession(),
+      [CHANNELS.onboarding.login]: async (
+        input: LoginInput,
+      ): Promise<LoginOutcome> => {
+        await browser.assertReady();
+        return handleLogin(input);
+      },
+      [CHANNELS.onboarding.openManualSso]: async (): Promise<LoginOutcome> => {
+        await browser.assertReady();
+        return appCore.openManualSso();
+      },
+      [CHANNELS.onboarding.checkSession]:
+        async (): Promise<OnboardingState> => {
+          await browser.assertReady();
+          return appCore.checkSession();
+        },
       [CHANNELS.app.getInfo]: (): Promise<AppInfo> => getAppInfo(),
+      [CHANNELS.app.getBrowser]: () => browser.getBrowser(),
+      [CHANNELS.app.setBrowser]: (choice: BrowserChoice) =>
+        browser.setBrowser(choice),
+      [CHANNELS.app.installChromium]: () => browser.installChromium(),
       [CHANNELS.app.setAutostart]: async (
         enabled: boolean,
       ): Promise<AppInfo> => {

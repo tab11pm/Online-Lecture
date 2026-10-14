@@ -42,6 +42,17 @@ describe('ChromiumInstaller', () => {
     });
   });
 
+  it('does not publish a repeated status when the UI reads it', async () => {
+    const { installer, fileExists, onChanged } = setup();
+    await installer.getState();
+    await installer.getState();
+    expect(onChanged).not.toHaveBeenCalled();
+    fileExists.mockResolvedValue(true);
+    await installer.getState();
+    await installer.getState();
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
   it('starts one bundled Playwright installation for simultaneous requests', async () => {
     const { installer, child, fileExists, spawn, onChanged } = setup();
     const first = installer.install();

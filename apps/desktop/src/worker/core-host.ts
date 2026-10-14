@@ -24,6 +24,7 @@ export class CoreHost {
   private readonly paths: AppPaths;
   private readonly machine: OnboardingMachine;
   private readonly log: CoreLog | undefined;
+  private readonly provider: SessionProvider | undefined;
   private capturedOutcome: LoginOutcome | undefined;
   private unsubscribe: (() => void) | undefined;
   private started = false;
@@ -34,6 +35,7 @@ export class CoreHost {
   ) {
     this.paths = deps.paths;
     this.log = deps.log;
+    this.provider = deps.provider;
     this.machine = deps.machine ?? this.buildMachine(deps.provider);
   }
 
@@ -101,6 +103,9 @@ export class CoreHost {
     }
     try {
       switch (command.type) {
+        case 'browser.setChoice':
+          this.provider?.setBrowserChoice?.(command.choice);
+          return;
         case 'onboarding.getState':
           this.postChanged(this.machine.getState());
           return;

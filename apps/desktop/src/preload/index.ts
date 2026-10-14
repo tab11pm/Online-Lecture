@@ -8,6 +8,7 @@ import type {
   LoginInput,
 } from '../shared/ipc-contract.js';
 import type { OnboardingState } from '../shared/onboarding.js';
+import type { BrowserChoice, BrowserView } from '../shared/browser-choice.js';
 
 function subscribe<T>(
   channel: string,
@@ -34,6 +35,11 @@ const api: DesktopApi = {
   },
   app: {
     getInfo: () => ipcRenderer.invoke(CHANNELS.app.getInfo),
+    getBrowser: () => ipcRenderer.invoke(CHANNELS.app.getBrowser),
+    setBrowser: (choice: BrowserChoice) =>
+      ipcRenderer.invoke(CHANNELS.app.setBrowser, choice),
+    installChromium: () => ipcRenderer.invoke(CHANNELS.app.installChromium),
+    onBrowserChanged: subscribe<BrowserView>(CHANNELS.app.browserChanged),
     setAutostart: (enabled: boolean) =>
       ipcRenderer.invoke(CHANNELS.app.setAutostart, enabled),
     quit: () => ipcRenderer.invoke(CHANNELS.app.quit),

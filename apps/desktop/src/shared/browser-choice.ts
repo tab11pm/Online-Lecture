@@ -5,6 +5,12 @@ export type BrowserInstallState = {
   message?: string;
 };
 
+export interface BrowserView {
+  choice: BrowserChoice;
+  install: BrowserInstallState;
+  externalChannel?: string;
+}
+
 export function browserChannel(choice: BrowserChoice): 'msedge' | undefined {
   return choice === 'edge' ? 'msedge' : undefined;
 }
