@@ -11,12 +11,9 @@ import type { LectureRunner, OnlineLectureResolver } from '../core/types.js';
 import { SqliteJobRepository } from '../persistence/job-repository.js';
 import { SqliteRunRepository } from '../persistence/run-repository.js';
 import { SqliteStore } from '../persistence/sqlite-store.js';
-import { mergeImportedJobs } from '../timetable/import-merger.js';
+import { runTimetableImport } from '../timetable/import-service.js';
 import type { HttpFetcher } from '../timetable/http-fetcher.js';
-import { groupOnlineDisciplines } from '../timetable/online-selector.js';
 import { createPlaywrightFetcher } from '../timetable/playwright-fetcher.js';
-import { TimetableClient } from '../timetable/timetable-client.js';
-import { buildImportedJobs } from '../timetable/timetable-importer.js';
 
 export interface CliResult {
   exitCode: number;
@@ -85,63 +82,33 @@ export async function executeCli(
       fetcher = await (dependencies.createFetcher ?? defaultFetcher)(
         authStatePath,
       );
-      const client = new TimetableClient({
-        fetcher,
-        year: new Date(
-          (dependencies.now ?? (() => new Date()))(),
-        ).getFullYear(),
-      });
-      const { faculty, group } =
-        facultyOption !== undefined && groupOption !== undefined
-          ? { faculty: facultyOption, group: groupOption }
-          : await client.discoverGroup();
-
-      const lessons = await client.fetchOnlineLessons(faculty, group);
-      if (lessons.length === 0) {
-        return { exitCode: 0, output: 'No online lessons found\n' };
-      }
-
-      const { disciplines, unresolved: unmappedLessons } =
-        await groupOnlineDisciplines(lessons, (lessonId) =>
-          client.fetchCourseLinks(lessonId),
-        );
       resolver = await (dependencies.createResolver ?? defaultResolver)();
-      const built = await buildImportedJobs({
-        faculty,
-        group,
-        disciplines,
+      store = new SqliteStore(databasePath);
+      await store.open();
+      const jobRepo = new SqliteJobRepository(store);
+      const result = await runTimetableImport({
+        fetcher,
         resolver,
+        jobs: jobRepo,
+        now: dependencies.now ?? (() => new Date()),
+        ...(facultyOption !== undefined && groupOption !== undefined
+          ? { group: { faculty: facultyOption, group: groupOption } }
+          : {}),
       });
 
-      if (built.authRequired) {
+      if (result.status === 'failed') {
+        return { exitCode: 1, output: `Import failed: ${result.message}\n` };
+      }
+      if (result.status === 'auth_required') {
         return {
           exitCode: 1,
           output: 'Authentication required for SDO; no changes applied\n',
         };
       }
-
-      store = new SqliteStore(databasePath);
-      await store.open();
-      const jobRepo = new SqliteJobRepository(store);
-      const existing = await jobRepo.listAll();
-      const complete =
-        unmappedLessons.length === 0 &&
-        built.unresolved.length === 0 &&
-        built.ambiguous.length === 0;
-      const { jobs, summary } = mergeImportedJobs(existing, built.jobs, {
-        prune: complete,
-      });
-
-      const resultIds = new Set(jobs.map((job) => job.id));
-      for (const old of existing) {
-        if (old.source === 'timetable' && !resultIds.has(old.id)) {
-          await jobRepo.delete(old.id);
-        }
+      if (result.lessons === 0) {
+        return { exitCode: 0, output: 'No online lessons found\n' };
       }
-      for (const job of jobs) {
-        await jobRepo.save(job);
-      }
-
+      const { summary } = result;
       const output =
         `Imported: ${summary.jobsCreated} created, ${summary.jobsDeleted} deleted, ` +
         `${summary.added} added, ${summary.removed} removed\n`;

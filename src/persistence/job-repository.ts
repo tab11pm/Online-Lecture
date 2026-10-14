@@ -45,4 +45,29 @@ export class SqliteJobRepository implements JobRepository {
       )
       .run(job.id, JSON.stringify(job), new Date().toISOString());
   }
+
+  async replaceTimetableJobs(jobs: Job[]): Promise<void> {
+    await this.store.createBackup();
+    const database = this.store.getDatabase();
+    const keep = new Set(jobs.map((job) => job.id));
+    const existing = database
+      .prepare(
+        "SELECT id FROM jobs WHERE json_extract(payload, '$.source') = 'timetable'",
+      )
+      .all() as Array<{ id: string }>;
+    const remove = database.prepare('DELETE FROM jobs WHERE id = ?');
+    const upsert = database.prepare(
+      `INSERT INTO jobs (id, payload, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at`,
+    );
+    const updatedAt = new Date().toISOString();
+    database.transaction(() => {
+      for (const { id } of existing) {
+        if (!keep.has(id)) remove.run(id);
+      }
+      for (const job of jobs) {
+        upsert.run(job.id, JSON.stringify(job), updatedAt);
+      }
+    })();
+  }
 }

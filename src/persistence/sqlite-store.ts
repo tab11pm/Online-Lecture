@@ -15,6 +15,10 @@ const initialSchema = `
     created_at TEXT NOT NULL,
     PRIMARY KEY (job_id, occurrence_id)
   );
+  CREATE TABLE IF NOT EXISTS meta (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+  );
 `;
 
 export class SqliteStore {
