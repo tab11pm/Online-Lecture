@@ -50,6 +50,8 @@ export class SingleLectureRunner implements LectureRunner {
     this.launch(occurrence);
   }
 
+  // The lifecycle always records a manual stop; the reason is part of the port.
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async stop(occurrence: Occurrence, _reason: CompletionReason): Promise<void> {
     const queuedIndex = this.queue.findIndex(
       (queued) => queued.id === occurrence.id,

@@ -443,7 +443,7 @@ describe('JobRunner lifecycle', () => {
           .fn()
           .mockResolvedValue({ status: 'auth_required' }),
         close: vi.fn(),
-      } as any,
+      } as unknown as ConstructorParameters<typeof JobRunner>[0],
       manager,
       {
         getById: async () => job,

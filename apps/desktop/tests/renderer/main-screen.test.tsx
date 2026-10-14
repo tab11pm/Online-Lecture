@@ -297,7 +297,7 @@ describe('main screen', () => {
     const toggle = await screen.findByRole('checkbox', {
       name: 'Показывать окно лекции',
     });
-    expect(toggle).not.toBeChecked();
+    await waitFor(() => expect(toggle).not.toBeChecked());
     fireEvent.click(toggle);
     await waitFor(() =>
       expect(fake.api.app.setShowLectureWindow).toHaveBeenCalledWith(true),
@@ -330,6 +330,7 @@ describe('main screen', () => {
     const toggle = await screen.findByRole('checkbox', {
       name: 'Показывать окно лекции',
     });
+    await waitFor(() => expect(toggle).not.toBeChecked());
     fireEvent.click(toggle);
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Не удалось сохранить',
