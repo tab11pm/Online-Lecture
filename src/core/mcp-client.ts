@@ -1,25 +1,29 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import {
+  appendTail,
+  SdoMcpUnavailableError,
+  type SdoMcpUnavailableReason,
+} from './mcp-errors.js';
+import { redactSensitiveText } from './redaction.js';
 import type {
-  Course,
-  CourseModuleMatches,
   McpConfig,
   OnlineLectureResolution,
   OnlineLectureResolver,
 } from './types.js';
 
-interface RawCourse {
-  title: string;
-  url: string;
-}
+// Matches the default of loadMcpConfig for configs built by hand.
+const DEFAULT_CONNECTION_TIMEOUT_MS = 30_000;
 
-function courseIdFromUrl(url: string): string {
-  try {
-    return new URL(url).searchParams.get('id') ?? url;
-  } catch {
-    return url;
+class HandshakeTimeout extends Error {}
+
+function classifyConnectError(error: unknown): SdoMcpUnavailableReason {
+  if (error instanceof HandshakeTimeout) {
+    return 'timeout';
   }
+  const code = (error as { code?: unknown } | null)?.code;
+  return code === 'ENOENT' || code === 'EACCES' ? 'not_found' : 'exited';
 }
 
 /**
@@ -38,21 +42,29 @@ export class SdoMcpClient implements OnlineLectureResolver {
   }
 
   /**
-   * Initialize MCP client connection
+   * Initialize MCP client connection.
+   *
+   * Startup failures become `SdoMcpUnavailableError` with a redacted stderr
+   * tail; the handshake is bounded by `connectionTimeout`.
    */
   private async ensureConnected(): Promise<void> {
     if (this.client) {
       return;
     }
 
-    this.transport = new StdioClientTransport({
+    const transport = new StdioClientTransport({
       command: this.config.serverPath,
       args: this.config.args ?? [],
       ...(this.config.cwd ? { cwd: this.config.cwd } : {}),
       ...(this.config.env ? { env: this.config.env } : {}),
+      stderr: 'pipe',
+    });
+    let stderrTail = '';
+    transport.stderr?.on('data', (chunk: Buffer | string) => {
+      stderrTail = appendTail(stderrTail, chunk.toString());
     });
 
-    this.client = new Client(
+    const client = new Client(
       {
         name: 'online-lecture',
         version: '0.1.0',
@@ -62,7 +74,30 @@ export class SdoMcpClient implements OnlineLectureResolver {
       },
     );
 
-    await this.client.connect(this.transport);
+    const timeoutMs =
+      this.config.connectionTimeout ?? DEFAULT_CONNECTION_TIMEOUT_MS;
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new HandshakeTimeout()), timeoutMs);
+    });
+
+    try {
+      await Promise.race([client.connect(transport), timedOut]);
+    } catch (error) {
+      await transport.close().catch(() => undefined);
+      // Let stderr chunks already emitted by the dead process land.
+      await new Promise((resolve) => setImmediate(resolve));
+      throw new SdoMcpUnavailableError(
+        classifyConnectError(error),
+        this.config.source,
+        redactSensitiveText(stderrTail.trim()),
+      );
+    } finally {
+      clearTimeout(timer);
+    }
+
+    this.client = client;
+    this.transport = transport;
   }
 
   private async callTool(
@@ -129,43 +164,6 @@ export class SdoMcpClient implements OnlineLectureResolver {
    */
   async login(): Promise<{ status: string }> {
     return this.callJsonTool<{ status: string }>('sdo_login', {});
-  }
-
-  /**
-   * List all courses available to the authenticated SDO session
-   */
-  async listCourses(): Promise<Course[]> {
-    const courses = await this.callJsonTool<RawCourse[]>('list_courses', {});
-
-    return courses.map((course) => ({
-      id: courseIdFromUrl(course.url),
-      name: course.title,
-      url: course.url,
-    }));
-  }
-
-  /**
-   * Find materials or assignments on a course page by title
-   */
-  async findCourseModule(
-    courseUrl: string,
-    query: string,
-  ): Promise<CourseModuleMatches> {
-    return this.callJsonTool<CourseModuleMatches>('find_course_module', {
-      courseUrl,
-      query,
-    });
-  }
-
-  /**
-   * Open an assignment page in SDO and return its text
-   */
-  async getAssignmentDetails(assignmentUrl: string): Promise<string> {
-    const result = await this.callTool('get_assignment_details', {
-      assignmentUrl,
-    });
-
-    return SdoMcpClient.readText('get_assignment_details', result);
   }
 
   /**

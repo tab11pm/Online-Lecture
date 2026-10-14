@@ -1,27 +1,40 @@
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
-
-// Load the SDO MCP configuration (SDO_MCP_SERVER_PATH, SDO_MCP_SERVER_CWD, …)
-// before forking the worker, which inherits this environment. The file is
-// optional; packaged mode configures the server another way (phase 4).
-try {
-  process.loadEnvFile('.env');
-} catch {
-  // .env is optional.
-}
 import { CHANNELS } from '../shared/ipc-contract.js';
 import type { AppInfo, LoginInput } from '../shared/ipc-contract.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import { setAutostart as applyAutostart } from './autostart.js';
 import { CoreProcess } from './core-process.js';
 import { registerIpc } from './ipc.js';
+import {
+  applyDesktopServerDefaults,
+  findWorkspaceRoot,
+  loadEnvFiles,
+} from './load-env.js';
+import { createLoginHandler } from './login-handler.js';
 import { resolveAppPaths, resolveDataRoot } from './paths.js';
 import { createSafeStorageBackend } from './safe-storage-backend.js';
 import { SecretStore } from './secret-store.js';
 import { SettingsStore } from './settings-store.js';
 import { createTray } from './tray.js';
 import { createMainWindow } from './window.js';
+
+// Load the SDO MCP configuration (SDO_MCP_SERVER_PATH, SDO_MCP_SERVER_CWD, …)
+// before forking the worker, which inherits this environment. The desktop app
+// runs from `apps/desktop`, so depending on the process CWD would miss the
+// repository-root `.env` documented in the README; load the app directory and
+// workspace root as well. Files are optional; packaged mode configures the
+// server another way (phase 4).
+const appPath = app.getAppPath();
+const workspaceRoot =
+  findWorkspaceRoot(appPath) ?? findWorkspaceRoot(process.cwd());
+loadEnvFiles([
+  appPath,
+  process.cwd(),
+  ...(workspaceRoot ? [workspaceRoot] : []),
+]);
+applyDesktopServerDefaults(process.env, process.platform);
 
 const startHidden = process.argv.includes('--hidden');
 
@@ -91,6 +104,11 @@ void app.whenReady().then(async () => {
   );
   const appCore = core;
   appCore.start();
+  const handleLogin = createLoginHandler({
+    secretStore,
+    settingsStore,
+    core: appCore,
+  });
 
   registerIpc({
     ipcMain,
@@ -98,11 +116,7 @@ void app.whenReady().then(async () => {
       [CHANNELS.onboarding.getState]: (): Promise<OnboardingState> =>
         appCore.getState(),
       [CHANNELS.onboarding.login]: (input: LoginInput): Promise<LoginOutcome> =>
-        (async () => {
-          await secretStore.save(input.password);
-          await settingsStore.update({ username: input.username });
-          return appCore.login(input);
-        })(),
+        handleLogin(input),
       [CHANNELS.onboarding.openManualSso]: (): Promise<LoginOutcome> =>
         appCore.openManualSso(),
       [CHANNELS.onboarding.checkSession]: (): Promise<OnboardingState> =>

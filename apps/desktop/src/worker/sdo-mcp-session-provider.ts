@@ -1,5 +1,6 @@
 import { loadMcpConfig } from '@core/config/mcp-config.js';
 import { SdoMcpClient } from '@core/core/mcp-client.js';
+import { isSdoMcpUnavailableError } from '@core/core/mcp-errors.js';
 import type { McpConfig } from '@core/core/types.js';
 import type { LoginOutcome } from '../shared/onboarding.js';
 import type { LoginCredentials, SessionProvider } from './session-provider.js';
@@ -78,6 +79,11 @@ export class SdoMcpSessionProvider implements SessionProvider {
     try {
       return toOutcome(await client.login());
     } catch (error) {
+      // A server that cannot start is not a failed login; let the onboarding
+      // machine explain it instead of showing the login form again.
+      if (isSdoMcpUnavailableError(error)) {
+        throw error;
+      }
       return {
         ok: false,
         reason: 'error',

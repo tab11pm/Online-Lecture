@@ -34,16 +34,20 @@ export function App() {
     void desktop.onboarding.login(input);
   }
 
+  // checkSession already degrades to the login form on failure; swallow any
+  // transport-level rejection (worker restart, timeout) so it never surfaces as
+  // an unhandled promise rejection.
+  function handleCheckSession(): void {
+    void desktop.onboarding.checkSession().catch(() => undefined);
+  }
+
   switch (state.phase) {
     case 'welcome':
       return (
         <main>
           <h1>Online Lecture</h1>
           <p>Подключение к онлайн-лекциям ТУСУР.</p>
-          <button
-            type="button"
-            onClick={() => void desktop.onboarding.checkSession()}
-          >
+          <button type="button" onClick={handleCheckSession}>
             Начать
           </button>
         </main>
@@ -67,18 +71,13 @@ export function App() {
         />
       );
     case 'session_ready':
-      return (
-        <SessionReady onCheck={() => void desktop.onboarding.checkSession()} />
-      );
+      return <SessionReady onCheck={handleCheckSession} />;
     case 'failed':
       return (
         <main>
           <h1>Не удалось войти</h1>
           <p role="alert">{state.message}</p>
-          <button
-            type="button"
-            onClick={() => void desktop.onboarding.checkSession()}
-          >
+          <button type="button" onClick={handleCheckSession}>
             Повторить
           </button>
         </main>
