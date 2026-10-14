@@ -13,7 +13,7 @@
 ## Состояние репозитория
 
 - **Репозиторий:** `/home/tabek/D/tusur/online-lecture` (Node/TypeScript, ESM, vitest, better-sqlite3, Playwright, luxon, zod, commander).
-- **HEAD:** ветка `master`; фича «Автоимпорт расписания ТУСУР» слита, поверх — фикс запуска реального MCP и slice 1 Electron-приложения (`apps/desktop`).
+- **HEAD:** ветка `master`; фича «Автоимпорт расписания ТУСУР» слита, поверх — фикс запуска реального MCP, slice 1 (onboarding) и slice 2a (автопосещение лекций) Electron-приложения (`apps/desktop`).
 - **Рабочее дерево:** чистое, кроме несвязанных `data/lectures.db` (modified) и `data/backups/*.sqlite` (untracked) — их не трогать.
 - **Гейты:** `npm run build` чист (core tsc + desktop typecheck) · `npm test` = **299** (40 файлов, core) + **205** desktop (2 E2E пропущены без `CI_ELECTRON_E2E=1`) · `npm run lint` = 57 (как baseline `main`; новые/изменённые файлы чистые) · `prettier --check apps/desktop` и `eslint apps/desktop` чисты.
 
@@ -127,10 +127,16 @@ E2E `apps/desktop/tests/e2e/lectures.test.ts` (фиктивная сессия, 
 - CLI `run-job`: SIGINT/SIGTERM прерывают только активный запуск и ждут выхода из BBB; код выхода 1 при `failed`, в выводе — отредактированная ошибка.
 - **Ограничение:** адаптер распознаёт только `connected` (`[data-testid="audio-connected"]`, фикстура `tests/fixtures/bbb-lifecycle/connected.html`). Waiting-room, конец встречи и удаление модератором без подтверждённых селекторов не угадываются: такая страница даёт `UnsupportedBbbObservationError` → `failed/error`. Нужна проверка на живой BBB и фикстуры реальных страниц.
 
-1. **Slice 2 Electron:** список лекций/правки/«Перенести» в UI, уведомления/журнал, интеграция импорта в приложение.
-2. **Фаза 4:** Windows-упаковка одним установщиком (electron-builder) и реальная проверка на Windows.
-3. **Windows-верификация (вручную):** реальный SSO-вход, DPAPI-шифрование пароля, автозапуск через реестр, поведение трея — см. чек-лист ниже; в песочнице проверялось только с фиктивным провайдером.
-4. **Живой smoke:** парсинг можно проверить с `auth.json`; полный импорт с созданием заданий требует установленного `sdo_mcp` и `SDO_MCP_SERVER_PATH`, а также session storage state в `SDO_AUTH_STATE_PATH`.
+## Что ещё НЕ сделано
+
+Slice 2a (импорт, автозапуск лекций, остановка/пропуск, индикация в окне и трее) готов. Осталось:
+
+1. **Slice 2b:** правки времени, «Перенести», ручные пары.
+2. **Slice 3:** уведомления и журнал.
+3. **Фаза 4:** Windows-упаковка одним установщиком (electron-builder).
+4. **Windows-верификация (вручную):** реальный SSO-вход, DPAPI-шифрование пароля, автозапуск через реестр, поведение трея, тестовая лекция — см. чек-лист ниже; в песочнице проверялось только с фиктивным провайдером.
+5. **Живые фикстуры BBB:** waiting-room, конец встречи, удаление модератором — по реальным страницам.
+6. **Живой smoke:** парсинг можно проверить с `auth.json`; полный импорт с созданием заданий требует установленного `sdo_mcp` и `SDO_MCP_SERVER_PATH`, а также session storage state в `SDO_AUTH_STATE_PATH`.
 
 ## Как проверить на Windows
 
