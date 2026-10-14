@@ -15,6 +15,8 @@ export interface SingleLectureRunnerDependencies {
   runJob: RunJobFn;
   onChange(): void;
   onAuthRequired(): void;
+  /** Called when a run throws instead of returning a result. */
+  onError?(error: unknown): void;
 }
 
 /** Runs at most one lecture at a time; further occurrences wait in a FIFO queue. */
@@ -116,8 +118,13 @@ export class SingleLectureRunner implements LectureRunner {
         signal,
       );
       if (result.authRequired) this.deps.onAuthRequired();
-    } catch {
+    } catch (error) {
       // A failed run must not escape; the queue continues.
+      try {
+        this.deps.onError?.(error);
+      } catch {
+        // Reporting must not break the queue either.
+      }
     } finally {
       this.current = undefined;
       const next = this.queue.shift();

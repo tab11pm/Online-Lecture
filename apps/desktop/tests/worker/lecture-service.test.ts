@@ -11,6 +11,7 @@ import { SqliteRunRepository } from '@core/persistence/run-repository.js';
 import { SqliteStore } from '@core/persistence/sqlite-store.js';
 import { LAST_IMPORT_KEY } from '@core/timetable/import-service.js';
 import type { LecturesView } from '../../src/shared/lectures.js';
+import type { CoreLog } from '../../src/worker/core-log.js';
 import { createFakeLectureAdapters } from '../../src/worker/lecture-adapters.fake.js';
 import {
   LectureService,
@@ -43,7 +44,17 @@ function databasePath(): string {
   return join(dir, 'data', 'lectures.db');
 }
 
-function setup(overrides: Partial<LectureAdapters> = {}) {
+function fakeLog() {
+  const lines: string[] = [];
+  const log: CoreLog = {
+    path: '/log',
+    info: (message) => lines.push(`INFO ${message}`),
+    error: (message) => lines.push(`ERROR ${message}`),
+  };
+  return { log, lines };
+}
+
+function setup(overrides: Partial<LectureAdapters> = {}, log?: CoreLog) {
   const views: LecturesView[] = [];
   const onAuthRequired = vi.fn();
   const fake = createFakeLectureAdapters(() => clock);
@@ -54,6 +65,7 @@ function setup(overrides: Partial<LectureAdapters> = {}) {
     now: () => clock,
     onView: (view) => views.push(view),
     onAuthRequired,
+    log,
   });
   services.push(service);
   const last = (): LecturesView | undefined => views.at(-1);
@@ -325,6 +337,88 @@ describe('LectureService', () => {
     await service.open();
     service.activate('login');
     await vi.waitFor(() => expect(onAuthRequired).toHaveBeenCalledTimes(1));
+  });
+
+  it('logs the redacted reason of a failed run', async () => {
+    const { log, lines } = fakeLog();
+    const { service } = setup(
+      {
+        runJob: async (_jobs, _runs, jobId, occurrenceId) =>
+          ({
+            jobId,
+            occurrenceId,
+            status: 'failed',
+            completionReason: 'error',
+            error:
+              'join failed at https://bbb2.tusur.ru/b/abc?sessionToken=xyz',
+            durationSeconds: 0,
+          }) satisfies RunResult,
+      },
+      log,
+    );
+    await service.open();
+    service.activate('login');
+    await vi.waitFor(() =>
+      expect(lines.some((line) => line.includes('lecture failed'))).toBe(true),
+    );
+    const line = lines.find((entry) => entry.includes('lecture failed'))!;
+    expect(line).toContain('reason=error');
+    expect(line).not.toContain('bbb2.tusur.ru');
+    expect(line).not.toContain('xyz');
+  });
+
+  it('logs a crashed lecture run without secrets', async () => {
+    const { log, lines } = fakeLog();
+    const { service } = setup(
+      {
+        runJob: async () => {
+          throw new Error('boom https://sdo.tusur.ru/mod/x?token=abc');
+        },
+      },
+      log,
+    );
+    await service.open();
+    service.activate('login');
+    await vi.waitFor(() =>
+      expect(lines.some((line) => line.includes('lecture run crashed'))).toBe(
+        true,
+      ),
+    );
+    expect(lines.join('\n')).not.toContain('token=abc');
+  });
+
+  it('logs a failed import', async () => {
+    const { log, lines } = fakeLog();
+    const { service } = setup(
+      {
+        runImport: async () => ({
+          status: 'failed',
+          message: 'fetch https://timetable.tusur.ru/x?sessionToken=zzz failed',
+        }),
+      },
+      log,
+    );
+    await service.open();
+    service.activate('login');
+    await vi.waitFor(() =>
+      expect(lines.some((line) => line.includes('import failed'))).toBe(true),
+    );
+    expect(lines.join('\n')).not.toContain('zzz');
+  });
+
+  it('logs when an import needs authentication', async () => {
+    const { log, lines } = fakeLog();
+    const { service } = setup(
+      { runImport: async () => ({ status: 'auth_required' }) },
+      log,
+    );
+    await service.open();
+    service.activate('login');
+    await vi.waitFor(() =>
+      expect(lines.some((line) => line.includes('import auth_required'))).toBe(
+        true,
+      ),
+    );
   });
 
   it('passes channel and headless to runJob', async () => {

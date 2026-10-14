@@ -106,11 +106,22 @@ export class LectureService {
     await runs.failInterrupted(this.deps.now().toISOString());
     const imports = new ImportScheduler({
       runImport: async (onProgress) => {
-        const result = await this.deps.adapters.runImport(
-          jobs,
-          onProgress,
-          this.browser,
-        );
+        let result: TimetableImportResult;
+        try {
+          result = await this.deps.adapters.runImport(
+            jobs,
+            onProgress,
+            this.browser,
+          );
+        } catch (error) {
+          this.logError('import failed', error);
+          throw error;
+        }
+        if (result.status === 'failed') {
+          this.logError('import failed', result.message);
+        } else if (result.status === 'auth_required') {
+          this.logError('import auth_required', 'authentication required');
+        }
         if (result.status === 'completed') {
           meta.set(LAST_IMPORT_KEY, this.deps.now().toISOString());
         }
@@ -135,7 +146,7 @@ export class LectureService {
         const job = await jobs.getById(jobId);
         const title = job?.origin?.discipline ?? jobId;
         this.launched = { occurrenceId, title };
-        return this.deps.adapters.runJob(
+        const result = await this.deps.adapters.runJob(
           jobs,
           runs,
           jobId,
@@ -143,7 +154,15 @@ export class LectureService {
           signal,
           this.browser,
         );
+        if (result.status === 'failed' || result.status === 'blocked') {
+          this.logError(
+            `lecture ${result.status} reason=${result.completionReason ?? 'unknown'}`,
+            result.error ?? 'no details',
+          );
+        }
+        return result;
       },
+      onError: (error) => this.logError('lecture run crashed', error),
       onChange: () => {
         const running = runner.active !== undefined;
         if (wasActive && !running) imports.lectureFinished();

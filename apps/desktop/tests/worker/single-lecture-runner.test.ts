@@ -30,6 +30,20 @@ function deferred<T>() {
 }
 
 describe('SingleLectureRunner', () => {
+  it('reports a crashed run through onError and keeps going', async () => {
+    const error = new Error('boom');
+    const onError = vi.fn();
+    const runner = new SingleLectureRunner({
+      runJob: vi.fn(() => Promise.reject(error)),
+      onChange: vi.fn(),
+      onAuthRequired: vi.fn(),
+      onError,
+    });
+    await runner.start(occ('a'));
+    expect(await runner.whenIdle(1000)).toBe(true);
+    expect(onError).toHaveBeenCalledWith(error);
+  });
+
   it('runs one occurrence at a time and queues the next', async () => {
     const gates = new Map<string, ReturnType<typeof deferred<RunResult>>>();
     const runJob = vi.fn((_j: string, o: string) => {
