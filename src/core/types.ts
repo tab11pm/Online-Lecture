@@ -106,6 +106,16 @@ export interface JobRepository {
 
 export interface RunRepository {
   getOrCreate(run: Run): Promise<{ run: Run; created: boolean }>;
+  claimScheduled(
+    jobId: string,
+    occurrenceId: string,
+    updatedAt: string,
+  ): Promise<Run | undefined>;
+  skipScheduled(
+    jobId: string,
+    occurrenceId: string,
+    updatedAt: string,
+  ): Promise<Run | undefined>;
   update(run: Run): Promise<void>;
 }
 
@@ -190,4 +200,24 @@ export interface BbbSession {
   url: string;
   meetingId?: string;
   startedAt: Date;
+}
+
+export type BbbObservation =
+  | { kind: 'waiting_room' }
+  | { kind: 'connected' }
+  | { kind: 'meeting_ended' }
+  | { kind: 'moderator_removed' }
+  | { kind: 'network_error'; message: string };
+
+export interface BbbSessionPort {
+  join(session: BbbSession, signal: AbortSignal): Promise<BbbObservation>;
+  observe(session: BbbSession, signal: AbortSignal): Promise<BbbObservation>;
+  reconnect(session: BbbSession, signal: AbortSignal): Promise<BbbObservation>;
+  leave(session: BbbSession): Promise<void>;
+}
+
+export interface LectureSessionControllerDependencies {
+  now(): Date;
+  sleep(milliseconds: number, signal: AbortSignal): Promise<void>;
+  update(run: Run): Promise<Run>;
 }

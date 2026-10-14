@@ -1,6 +1,54 @@
 import { chromium, Browser, Page } from 'playwright';
+import type {
+  SessionConfig,
+  BbbSession,
+  BbbObservation,
+  SessionState,
+} from './types.js';
 import { assertBrowserAvailable } from './browser-launch.js';
-import type { SessionConfig, BbbSession, SessionState } from './types.js';
+import { redactSensitiveText } from './redaction.js';
+
+export class UnsupportedBbbObservationError extends Error {
+  constructor() {
+    super('BBB page has no supported positive lifecycle signal');
+    this.name = 'UnsupportedBbbObservationError';
+  }
+}
+
+async function interruptStartup<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+  timeoutMs: number,
+  stage: string,
+  disposeLate: (resource: T) => Promise<void>,
+): Promise<T> {
+  let interrupted = false;
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
+  const interruption = new Promise<never>((_resolve, reject) => {
+    onAbort = () => {
+      interrupted = true;
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+    timeout = setTimeout(() => {
+      interrupted = true;
+      reject(new Error(`BBB ${stage} timeout`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([operation, interruption]);
+  } catch (error) {
+    if (interrupted) {
+      void operation.then(disposeLate, () => undefined).catch(() => undefined);
+    }
+    throw error;
+  } finally {
+    if (timeout) clearTimeout(timeout);
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
 
 /**
  * Manages BigBlueButton sessions using Playwright
@@ -14,36 +62,100 @@ export class PlaywrightBbbSessionManager {
   /**
    * Start a new browser session and navigate to BBB URL
    */
-  async startSession(url: string, config: SessionConfig): Promise<BbbSession> {
+  async startSession(
+    url: string,
+    config: SessionConfig,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<BbbSession> {
     this.validateUrl(url);
-
+    signal.throwIfAborted();
     await assertBrowserAvailable(this.options.channel);
-
-    this.browser = await chromium.launch({
-      headless: config.headless,
-      ...(this.options.channel ? { channel: this.options.channel } : {}),
-    });
-
-    const page = await this.browser.newPage();
-
-    const session: BbbSession = {
-      page,
-      status: 'starting',
-      url,
-      startedAt: new Date(),
+    signal.throwIfAborted();
+    const startupTimeout =
+      config.timeout && Number.isFinite(config.timeout) && config.timeout > 0
+        ? config.timeout
+        : 30_000;
+    let browser: Browser | undefined;
+    let page: Page | undefined;
+    let browserClosed = false;
+    let pageClosed = false;
+    let cleanupQueue: Promise<void> = Promise.resolve();
+    const cleanup = (): Promise<void> => {
+      cleanupQueue = cleanupQueue.then(async () => {
+        try {
+          if (page && !pageClosed) {
+            pageClosed = true;
+            await page.close();
+          }
+        } finally {
+          if (browser && !browserClosed) {
+            browserClosed = true;
+            await browser.close();
+            if (this.browser === browser) this.browser = null;
+          }
+        }
+      });
+      return cleanupQueue;
     };
-
+    const onAbort = () => {
+      void cleanup().catch(() => undefined);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
     try {
-      await page.goto(url, { waitUntil: 'networkidle' });
+      browser = await interruptStartup(
+        chromium.launch({
+          headless: config.headless,
+          ...(this.options.channel ? { channel: this.options.channel } : {}),
+        }),
+        signal,
+        startupTimeout,
+        'launch',
+        (lateBrowser) => lateBrowser.close(),
+      );
+      this.browser = browser;
+      signal.throwIfAborted();
+      page = await interruptStartup(
+        browser.newPage(),
+        signal,
+        startupTimeout,
+        'page creation',
+        (latePage) => latePage.close(),
+      );
+      signal.throwIfAborted();
+      const session: BbbSession = {
+        page,
+        status: 'starting',
+        url,
+        startedAt: new Date(),
+      };
+      const navigation = page.goto(url, { waitUntil: 'networkidle' });
+      await new Promise<void>((resolve, reject) => {
+        const interrupt = () => reject(signal.reason);
+        signal.addEventListener('abort', interrupt, { once: true });
+        if (signal.aborted) interrupt();
+        navigation.then(
+          () => {
+            signal.removeEventListener('abort', interrupt);
+            resolve();
+          },
+          (error: unknown) => {
+            signal.removeEventListener('abort', interrupt);
+            reject(error);
+          },
+        );
+      });
+      signal.throwIfAborted();
       session.status = 'started';
       this.sessions.set(url, session);
       return session;
     } catch (error) {
-      session.status = 'error';
-      await page.close();
+      await cleanup();
+      signal.throwIfAborted();
       throw new Error(
         `Failed to start session: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
+    } finally {
+      signal.removeEventListener('abort', onAbort);
     }
   }
 
@@ -131,6 +243,63 @@ export class PlaywrightBbbSessionManager {
   }
 
   /**
+   * Observe once without altering the session or choosing a terminal state.
+   * The only supported positive selector is documented in connected.html.
+   * Waiting-room, meeting-ended and moderator-removal selectors are unverified.
+   */
+  async observe(
+    session: BbbSession,
+    signal: AbortSignal,
+  ): Promise<BbbObservation> {
+    signal.throwIfAborted();
+
+    let connected: boolean;
+    try {
+      connected = await session.page.evaluate(
+        () =>
+          document.querySelector('[data-testid="audio-connected"]') !== null,
+      );
+    } catch (error) {
+      signal.throwIfAborted();
+      return {
+        kind: 'network_error',
+        message: redactSensitiveText(
+          error instanceof Error ? error.message : 'BBB page evaluation failed',
+        ),
+      };
+    }
+
+    signal.throwIfAborted();
+    if (connected) return { kind: 'connected' };
+    throw new UnsupportedBbbObservationError();
+  }
+
+  /** Reload the existing page and rejoin using the same listener-only flow. */
+  async reconnect(
+    session: BbbSession,
+    signal: AbortSignal,
+  ): Promise<BbbObservation> {
+    signal.throwIfAborted();
+    try {
+      await session.page.reload({ waitUntil: 'networkidle' });
+      signal.throwIfAborted();
+      session.status = 'started';
+      await this.joinAsListener(session);
+      signal.throwIfAborted();
+      return await this.observe(session, signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      if (error instanceof UnsupportedBbbObservationError) throw error;
+      return {
+        kind: 'network_error',
+        message: redactSensitiveText(
+          error instanceof Error ? error.message : 'BBB reconnect failed',
+        ),
+      };
+    }
+  }
+
+  /**
    * Leave the session and close the browser
    */
   async leaveSession(session: BbbSession): Promise<void> {
@@ -156,7 +325,7 @@ export class PlaywrightBbbSessionManager {
       // Always close the page and browser
       try {
         await session.page.close();
-      } catch (e) {
+      } catch {
         // Ignore errors during page close
       }
 
@@ -175,10 +344,6 @@ export class PlaywrightBbbSessionManager {
   private async disableMediaDevices(page: Page): Promise<void> {
     // Override getUserMedia to return empty streams
     await page.addInitScript(() => {
-      const originalGetUserMedia = navigator.mediaDevices.getUserMedia.bind(
-        navigator.mediaDevices,
-      );
-
       navigator.mediaDevices.getUserMedia = async (constraints) => {
         const stream = new MediaStream();
 

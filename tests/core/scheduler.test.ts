@@ -43,6 +43,8 @@ describe('Scheduler', () => {
         return { run, created: true };
       },
       update: async () => undefined,
+      claimScheduled: async () => undefined,
+      skipScheduled: async () => undefined,
     };
     const runner: LectureRunner = {
       start: async () => undefined,
