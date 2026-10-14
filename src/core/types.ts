@@ -125,20 +125,6 @@ export interface Course {
   url?: string;
 }
 
-export interface CourseModuleMatch {
-  title: string;
-  url: string;
-  type: string;
-  score: number;
-}
-
-export interface CourseModuleMatches {
-  courseUrl: string;
-  query: string;
-  totalModules: number;
-  matches: CourseModuleMatch[];
-}
-
 export interface OnlineLectureCandidate {
   id: string;
   name: string;
@@ -161,8 +147,12 @@ export interface OnlineLectureResolver {
   }): Promise<OnlineLectureResolution>;
 }
 
+/** Where the SDO MCP server command came from, in priority order. */
+export type McpServerSource = 'env' | 'bundled' | 'user-install' | 'path';
+
 export interface McpConfig {
   serverPath: string;
+  source?: McpServerSource;
   args?: string[];
   cwd?: string;
   env?: Record<string, string>;

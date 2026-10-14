@@ -3,8 +3,6 @@ export type {
   Clock,
   CompletionReason,
   Course,
-  CourseModuleMatch,
-  CourseModuleMatches,
   ImportedOccurrence,
   Job,
   JobOrigin,
@@ -13,6 +11,7 @@ export type {
   LectureRunner,
   LectureTarget,
   McpConfig,
+  McpServerSource,
   Occurrence,
   OnlineLectureCandidate,
   OnlineLectureResolution,
@@ -26,6 +25,11 @@ export type {
   Weekday,
 } from './types.js';
 export { redactSensitiveText } from './redaction.js';
+export {
+  isSdoMcpUnavailableError,
+  SdoMcpUnavailableError,
+} from './mcp-errors.js';
+export type { SdoMcpUnavailableReason } from './mcp-errors.js';
 export { findActiveOccurrence } from './occurrence.js';
 export { completeRun, transitionRun } from './lifecycle.js';
 export { leaveIfDeadlineReached } from './deadline.js';

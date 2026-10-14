@@ -1,6 +1,10 @@
+import { join } from 'node:path';
+import { loadMcpConfig } from '@core/config/mcp-config.js';
 import { createAppPaths } from '../shared/paths.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import { CoreHost, type HostTransport } from './core-host.js';
+import { createCoreLog } from './core-log.js';
+import { SdoMcpSessionProvider } from './sdo-mcp-session-provider.js';
 import type { SessionProvider } from './session-provider.js';
 import { FakeSessionProvider } from './session-provider.fake.js';
 
@@ -42,12 +46,23 @@ const transport: HostTransport = {
   },
 };
 
-const provider: SessionProvider | undefined =
-  process.env.ONLINE_LECTURE_FAKE_SESSION === '1'
-    ? new FakeSessionProvider()
-    : undefined;
+const paths = createAppPaths(userDataDir);
+const log = createCoreLog(join(paths.logs, 'core.log'));
+
+function createProvider(): SessionProvider {
+  if (process.env.ONLINE_LECTURE_FAKE_SESSION === '1') {
+    return new FakeSessionProvider();
+  }
+  const config = loadMcpConfig();
+  // Command and source only: the server environment carries credentials.
+  log.info(
+    `sdo-mcp source=${config.source ?? 'unknown'} command=${[config.serverPath, ...(config.args ?? [])].join(' ')}`,
+  );
+  return new SdoMcpSessionProvider(config);
+}
 
 new CoreHost(transport, {
-  paths: createAppPaths(userDataDir),
-  provider,
+  paths,
+  provider: createProvider(),
+  log,
 }).start();

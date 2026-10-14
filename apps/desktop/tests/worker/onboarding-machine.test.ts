@@ -1,4 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
+import { SdoMcpUnavailableError } from '@core/core/mcp-errors.js';
 import { OnboardingMachine } from '../../src/worker/onboarding-machine.js';
 
 function machine(
@@ -80,5 +81,99 @@ describe('OnboardingMachine', () => {
   it('returns to credentials when checkSession reports an expired session', async () => {
     const m = machine({ checkSession: vi.fn().mockResolvedValue(false) });
     expect(await m.checkSession()).toMatchObject({ phase: 'credentials' });
+  });
+
+  it('returns to credentials with an error instead of throwing when the session check fails', async () => {
+    const m = machine({
+      checkSession: vi
+        .fn()
+        .mockRejectedValue(new Error('MCP error -32000: Connection closed')),
+    });
+
+    await expect(m.checkSession()).resolves.toMatchObject({
+      phase: 'credentials',
+    });
+    const state = await m.checkSession();
+    expect((state as { error?: string }).error).toBeTruthy();
+  });
+
+  describe('when SDO MCP is unavailable', () => {
+    const NOT_FOUND =
+      'Компонент входа SDO MCP не найден. Переустановите приложение.';
+    const commands = [
+      ['checkSession', (m: OnboardingMachine) => m.checkSession()],
+      [
+        'submitCredentials',
+        (m: OnboardingMachine) =>
+          m.submitCredentials({ username: 'u', password: 'p' }),
+      ],
+      ['openManualSso', (m: OnboardingMachine) => m.openManualSso()],
+    ] as const;
+
+    function unavailable(reason: 'not_found' | 'exited' | 'timeout') {
+      const error = new SdoMcpUnavailableError(reason, 'bundled', '');
+      return {
+        login: vi.fn().mockRejectedValue(error),
+        openManualSso: vi.fn().mockRejectedValue(error),
+        checkSession: vi.fn().mockRejectedValue(error),
+      };
+    }
+
+    it.each(commands)(
+      '%s shows the not-found message when SDO MCP is missing',
+      async (_, run) => {
+        const m = machine(unavailable('not_found'));
+
+        await expect(run(m)).resolves.toEqual({
+          phase: 'failed',
+          message: NOT_FOUND,
+        });
+      },
+    );
+
+    it.each(commands)(
+      '%s shows the not-started message with the log path',
+      async (_, run) => {
+        const m = machine({
+          ...unavailable('timeout'),
+          logPath: 'C:\\logs\\core.log',
+        });
+
+        await expect(run(m)).resolves.toEqual({
+          phase: 'failed',
+          message:
+            'Компонент входа SDO MCP не запустился. Подробности в журнале: C:\\logs\\core.log.',
+        });
+      },
+    );
+
+    it('falls back to a generic log hint without a log path', async () => {
+      const m = machine(unavailable('exited'));
+
+      await expect(m.checkSession()).resolves.toEqual({
+        phase: 'failed',
+        message:
+          'Компонент входа SDO MCP не запустился. Подробности в журнале приложения.',
+      });
+    });
+
+    it('reports every caught error to onError', async () => {
+      const missing = new SdoMcpUnavailableError('not_found', 'path', '');
+      const broken = new Error('MCP error -32603: boom');
+      const onError = vi.fn();
+      const m = machine({
+        checkSession: vi
+          .fn()
+          .mockRejectedValueOnce(missing)
+          .mockRejectedValueOnce(broken),
+        onError,
+      });
+
+      await m.checkSession();
+      await m.checkSession();
+
+      expect(onError).toHaveBeenNthCalledWith(1, missing);
+      expect(onError).toHaveBeenNthCalledWith(2, broken);
+    });
   });
 });

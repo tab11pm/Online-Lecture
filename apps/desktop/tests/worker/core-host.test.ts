@@ -1,5 +1,7 @@
 import { describe, it, expect, vi } from 'vitest';
+import { SdoMcpUnavailableError } from '@core/core/mcp-errors.js';
 import { CoreHost, type HostTransport } from '../../src/worker/core-host.js';
+import type { CoreLog } from '../../src/worker/core-log.js';
 import { OnboardingMachine } from '../../src/worker/onboarding-machine.js';
 import type { HostEvent, MainCommand } from '../../src/shared/host-protocol.js';
 import type { AppPaths } from '../../src/shared/paths.js';
@@ -40,6 +42,20 @@ function machine(
     checkSession: vi.fn().mockResolvedValue(true),
     ...overrides,
   });
+}
+
+// The real OnboardingMachine now degrades a failed session check to the
+// credentials phase (covered by its own tests), so CoreHost's error path is
+// exercised with a minimal machine whose command rejects.
+function throwingMachine(error: Error): OnboardingMachine {
+  return {
+    onChange: () => () => undefined,
+    start: () => ({ phase: 'welcome' }),
+    getState: () => ({ phase: 'welcome' }),
+    submitCredentials: vi.fn().mockResolvedValue({ phase: 'welcome' }),
+    openManualSso: vi.fn().mockResolvedValue({ phase: 'welcome' }),
+    checkSession: vi.fn().mockRejectedValue(error),
+  } as unknown as OnboardingMachine;
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -144,11 +160,7 @@ describe('CoreHost', () => {
     const { transport, posted, send } = fakeTransport();
     const host = new CoreHost(transport, {
       paths,
-      machine: machine({
-        checkSession: vi
-          .fn()
-          .mockRejectedValue(new Error('failed at bbb2.tusur.ru/b/abc')),
-      }),
+      machine: throwingMachine(new Error('failed at bbb2.tusur.ru/b/abc')),
     });
     host.start();
 
@@ -167,13 +179,9 @@ describe('CoreHost', () => {
     const { transport, posted, send } = fakeTransport();
     const host = new CoreHost(transport, {
       paths,
-      machine: machine({
-        checkSession: vi
-          .fn()
-          .mockRejectedValue(
-            new Error('cookie: session=abc https://tusur.ru/?token=xyz'),
-          ),
-      }),
+      machine: throwingMachine(
+        new Error('cookie: session=abc https://tusur.ru/?token=xyz'),
+      ),
     });
     host.start();
 
@@ -188,5 +196,42 @@ describe('CoreHost', () => {
     expect(error?.message).not.toContain('tusur.ru');
     expect(error?.message).not.toContain('abc');
     expect(error?.message).not.toContain('xyz');
+  });
+
+  it('logs SDO MCP unavailability with reason and source', async () => {
+    const provider: SessionProvider = {
+      loginWithCredentials: vi.fn().mockResolvedValue({ ok: true }),
+      openManualLogin: vi.fn().mockResolvedValue({ ok: true }),
+      checkSession: vi
+        .fn()
+        .mockRejectedValue(
+          new SdoMcpUnavailableError('exited', 'bundled', 'exit code 1'),
+        ),
+    };
+    const log: CoreLog = {
+      path: '/d/logs/core.log',
+      info: vi.fn(),
+      error: vi.fn(),
+    };
+    const { transport, posted, send } = fakeTransport();
+    const host = new CoreHost(transport, { paths, provider, log });
+    host.start();
+
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+
+    const logged = vi.mocked(log.error).mock.calls.map(([line]) => line);
+    expect(logged).toHaveLength(1);
+    expect(logged[0]).toContain('exited');
+    expect(logged[0]).toContain('bundled');
+    expect(logged[0]).toContain('exit code 1');
+    expect(posted).toContainEqual({
+      type: 'onboarding.changed',
+      state: {
+        phase: 'failed',
+        message:
+          'Компонент входа SDO MCP не запустился. Подробности в журнале: /d/logs/core.log.',
+      },
+    });
   });
 });
