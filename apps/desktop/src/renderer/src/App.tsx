@@ -5,7 +5,7 @@ import { desktop } from './api';
 import { CredentialsForm } from './components/CredentialsForm';
 import { BrowserChoice } from './components/BrowserChoice';
 import { ManualSsoPanel } from './components/ManualSsoPanel';
-import { SessionReady } from './components/SessionReady';
+import { MainScreen } from './components/MainScreen';
 
 export function App() {
   const [state, setState] = useState<OnboardingState>({ phase: 'welcome' });
@@ -109,9 +109,8 @@ export function App() {
     case 'session_ready':
       return (
         <>
-          <SessionReady onCheck={handleCheckSession} />
           {actionError ? <p role="alert">{actionError}</p> : null}
-          <BrowserChoice />
+          <MainScreen onCheckSession={handleCheckSession} />
         </>
       );
     case 'failed':
