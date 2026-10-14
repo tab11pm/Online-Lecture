@@ -27,6 +27,7 @@ export class SingleLectureRunner implements LectureRunner {
       }
     | undefined;
   private readonly queue: Occurrence[] = [];
+  private state: 'open' | 'closed' = 'open';
 
   constructor(private readonly deps: SingleLectureRunnerDependencies) {}
 
@@ -35,6 +36,7 @@ export class SingleLectureRunner implements LectureRunner {
   }
 
   async start(occurrence: Occurrence): Promise<void> {
+    if (this.state === 'closed') return;
     if (
       this.current?.occurrence.id === occurrence.id ||
       this.queue.some((queued) => queued.id === occurrence.id)
@@ -62,9 +64,14 @@ export class SingleLectureRunner implements LectureRunner {
     }
   }
 
-  /** Aborts the active run (queued occurrences are dropped) and waits for it to end. */
-  async stopCurrent(): Promise<void> {
+  /** Stops accepting new occurrences and drops the queue; the active run is untouched. */
+  close(): void {
+    this.state = 'closed';
     this.queue.length = 0;
+  }
+
+  /** Aborts only the active run and waits for it; queued occurrences are kept. */
+  async stopCurrent(): Promise<void> {
     const current = this.current;
     if (!current) return;
     current.controller.abort();

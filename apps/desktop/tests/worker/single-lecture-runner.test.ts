@@ -148,4 +148,49 @@ describe('SingleLectureRunner', () => {
     expect(await runner.whenIdle(500)).toBe(true);
     expect(runJob).toHaveBeenCalledTimes(2);
   });
+
+  it('stopCurrent keeps queued occurrences and starts the next one', async () => {
+    const aborted: string[] = [];
+    const runJob = vi.fn(
+      (_j: string, o: string, s: AbortSignal) =>
+        new Promise<RunResult>((resolve) => {
+          s.addEventListener('abort', () => {
+            aborted.push(o);
+            resolve(result(o));
+          });
+          if (o === 'b') resolve(result(o));
+        }),
+    );
+    const runner = new SingleLectureRunner({
+      runJob,
+      onChange: vi.fn(),
+      onAuthRequired: vi.fn(),
+    });
+    await runner.start(occ('a'));
+    await runner.start(occ('b'));
+    await runner.stopCurrent();
+    expect(aborted).toEqual(['a']);
+    expect(await runner.whenIdle(500)).toBe(true);
+    expect(runJob).toHaveBeenCalledTimes(2);
+    expect(runJob.mock.calls[1]![1]).toBe('b');
+  });
+
+  it('close drops the queue and ignores later starts', async () => {
+    const gate = deferred<RunResult>();
+    const runJob = vi.fn(() => gate.promise);
+    const runner = new SingleLectureRunner({
+      runJob,
+      onChange: vi.fn(),
+      onAuthRequired: vi.fn(),
+    });
+    await runner.start(occ('a'));
+    await runner.start(occ('b'));
+    runner.close();
+    expect(runner.active?.id).toBe('a');
+    gate.resolve(result('a'));
+    expect(await runner.whenIdle(500)).toBe(true);
+    await runner.start(occ('c'));
+    expect(runJob).toHaveBeenCalledTimes(1);
+    expect(runner.active).toBeUndefined();
+  });
 });
