@@ -318,6 +318,35 @@ describe('CoreHost', () => {
     expect(lectures.control.activate).toHaveBeenCalledWith('startup');
   });
 
+  it.each([
+    [
+      'Lecture database is not open',
+      'База лекций недоступна. Перезапустите приложение.',
+    ],
+    ['Lecture not found', 'Пара не найдена. Обновите расписание.'],
+    ['Occurrence not found', 'Пара не найдена. Обновите расписание.'],
+  ])('translates the worker error "%s" into Russian', async (raw, russian) => {
+    const lectures = fakeLectures();
+    lectures.control.setSkipped.mockRejectedValueOnce(new Error(raw));
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    await flush();
+
+    send({
+      type: 'lectures.setSkipped',
+      jobId: 'tt:1',
+      occurrenceId: 'tt:1:x',
+      skipped: true,
+    });
+    await flush();
+
+    expect(posted).toContainEqual({ type: 'host.error', message: russian });
+  });
+
   it('forwards lecture commands', async () => {
     const lectures = fakeLectures();
     const { transport, posted, send } = fakeTransport();

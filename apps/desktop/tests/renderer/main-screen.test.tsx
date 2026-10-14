@@ -15,6 +15,9 @@ import type { AgendaItem, LecturesView } from '../../src/shared/lectures.js';
 
 const fake = vi.hoisted(() => {
   const listeners = new Set<(view: LecturesView) => void>();
+  const notifyListeners = new Set<
+    (notification: { level: 'error' | 'info'; message: string }) => void
+  >();
   const noop = vi.fn(() => Promise.resolve());
   const getView = vi.fn((): Promise<LecturesView> =>
     Promise.resolve({ agenda: [], import: { status: 'idle' } }),
@@ -56,13 +59,29 @@ const fake = vi.hoisted(() => {
         return () => listeners.delete(listener);
       }),
     },
-    core: {},
+    core: {
+      onNotification: vi.fn(
+        (
+          listener: (notification: {
+            level: 'error' | 'info';
+            message: string;
+          }) => void,
+        ) => {
+          notifyListeners.add(listener);
+          return () => notifyListeners.delete(listener);
+        },
+      ),
+    },
   } as unknown as DesktopApi;
   (window as unknown as { desktop: DesktopApi }).desktop = api;
   return {
     api,
     getView,
     listenerCount: () => listeners.size,
+    notifyCount: () => notifyListeners.size,
+    notify: (notification: { level: 'error' | 'info'; message: string }) => {
+      for (const listener of notifyListeners) listener(notification);
+    },
     emit: (view: LecturesView) => {
       for (const listener of listeners) listener(view);
     },
@@ -98,6 +117,10 @@ beforeEach(() => {
   vi.mocked(fake.api.lectures.setSkipped).mockClear();
   vi.mocked(fake.api.app.setShowLectureWindow).mockClear();
   vi.mocked(fake.api.app.getShowLectureWindow).mockClear();
+  vi.mocked(fake.api.app.getBrowser).mockResolvedValue({
+    choice: 'edge',
+    install: { status: 'missing' },
+  });
   show({});
 });
 
@@ -106,6 +129,39 @@ afterEach(() => {
 });
 
 describe('main screen', () => {
+  it('shows core notifications in an alert and unsubscribes on unmount', async () => {
+    const { unmount } = render(<App />);
+    await screen.findByText('Загрузка…').catch(() => undefined);
+    await waitFor(() => expect(fake.notifyCount()).toBe(1));
+
+    act(() =>
+      fake.notify({
+        level: 'error',
+        message: 'Процесс ядра неожиданно завершился.',
+      }),
+    );
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Процесс ядра неожиданно завершился.',
+    );
+    unmount();
+    expect(fake.notifyCount()).toBe(0);
+  });
+
+  it('shows the Chromium install button outside the collapsed settings', async () => {
+    vi.mocked(fake.api.app.getBrowser).mockResolvedValue({
+      choice: 'chromium',
+      install: { status: 'missing' },
+    });
+    render(<App />);
+
+    const button = await screen.findByRole('button', {
+      name: 'Установить Chromium',
+    });
+    expect(button).toBeVisible();
+    expect(button.closest('details')).toBeNull();
+  });
+
   it('shows the running lecture with a stop button', async () => {
     show({
       current: {

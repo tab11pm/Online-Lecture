@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import type { AgendaItem, LecturesView } from '../../../shared/lectures.js';
 import { desktop } from '../api';
 import { AgendaList } from './AgendaList';
+import { ChromiumBanner } from './ChromiumBanner';
 import { ImportPanel } from './ImportPanel';
 import { LectureStatus } from './LectureStatus';
 import { SettingsPanel } from './SettingsPanel';
@@ -19,6 +20,15 @@ function message(error: unknown): string {
 export function MainScreen({ onCheckSession }: MainScreenProps) {
   const [view, setView] = useState<LecturesView>();
   const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState<string>();
+
+  useEffect(
+    () =>
+      desktop.core.onNotification((notification) => {
+        setNotice(notification.message);
+      }),
+    [],
+  );
 
   useEffect(() => {
     let active = true;
@@ -47,6 +57,7 @@ export function MainScreen({ onCheckSession }: MainScreenProps) {
   return (
     <main>
       <h1>Online Lecture</h1>
+      {notice ? <p role="alert">{notice}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {view ? (
         <>
@@ -74,6 +85,7 @@ export function MainScreen({ onCheckSession }: MainScreenProps) {
       ) : (
         <p role="status">Загрузка…</p>
       )}
+      <ChromiumBanner />
       <SettingsPanel onCheckSession={onCheckSession} />
     </main>
   );

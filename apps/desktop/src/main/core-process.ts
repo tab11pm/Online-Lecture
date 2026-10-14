@@ -50,6 +50,11 @@ interface Pending<T> {
   reject(error: Error): void;
 }
 
+const EMPTY_LECTURES_VIEW: LecturesView = {
+  agenda: [],
+  import: { status: 'idle' },
+};
+
 export class CoreProcess {
   private child: CoreChild | undefined;
   private status: CoreStatus = 'idle';
@@ -58,10 +63,7 @@ export class CoreProcess {
   private lastState: OnboardingState = { phase: 'welcome' };
   private pendingState: Pending<OnboardingState> | undefined;
   private pendingLogin: Pending<LoginOutcome> | undefined;
-  private lecturesView: LecturesView = {
-    agenda: [],
-    import: { status: 'idle' },
-  };
+  private lecturesView: LecturesView = EMPTY_LECTURES_VIEW;
   private shutdownWaiter: (() => void) | undefined;
   private stateRequest: Promise<OnboardingState> | undefined;
   private loginRequest: Promise<LoginOutcome> | undefined;
@@ -109,6 +111,8 @@ export class CoreProcess {
       this.ready = false;
       this.queued.length = 0;
       this.rejectPending('Процесс ядра неожиданно завершился.');
+      this.lecturesView = EMPTY_LECTURES_VIEW;
+      this.callbacks.onLecturesChanged(EMPTY_LECTURES_VIEW);
       this.shutdownWaiter?.();
       if (this.status !== 'stopped') {
         this.setStatus('error');

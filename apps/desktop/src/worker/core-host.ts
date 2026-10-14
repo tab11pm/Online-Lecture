@@ -115,7 +115,7 @@ export class CoreHost {
       );
       this.transport.post({
         type: 'host.error',
-        message: redactSensitiveText(errorMessage(error)),
+        message: localizeHostError(redactSensitiveText(errorMessage(error))),
       });
       return false;
     }
@@ -250,7 +250,7 @@ export class CoreHost {
     } catch (error) {
       this.transport.post({
         type: 'host.error',
-        message: redactSensitiveText(errorMessage(error)),
+        message: localizeHostError(redactSensitiveText(errorMessage(error))),
       });
     }
   }
@@ -299,4 +299,21 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return typeof error === 'string' ? error : 'Не удалось выполнить операцию.';
+}
+
+const HOST_ERROR_TRANSLATIONS: ReadonlyArray<readonly [string, string]> = [
+  [
+    'Lecture database is not open',
+    'База лекций недоступна. Перезапустите приложение.',
+  ],
+  ['Lecture not found', 'Пара не найдена. Обновите расписание.'],
+  ['Occurrence not found', 'Пара не найдена. Обновите расписание.'],
+];
+
+/** Translates the worker's known internal English errors for the UI. */
+function localizeHostError(message: string): string {
+  for (const [english, russian] of HOST_ERROR_TRANSLATIONS) {
+    if (message === english) return russian;
+  }
+  return message;
 }

@@ -85,7 +85,7 @@ export function SettingsPanel({ onCheckSession }: SettingsPanelProps) {
       <button type="button" onClick={onCheckSession}>
         Проверить вход
       </button>
-      <BrowserChoice />
+      <BrowserChoice bannerOwnsInstall />
     </details>
   );
 }

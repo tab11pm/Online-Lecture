@@ -313,6 +313,21 @@ describe('CoreProcess lectures', () => {
     expect(onLecturesChanged).toHaveBeenCalledWith(next);
   });
 
+  it('resets and broadcasts the empty view when the worker exits', () => {
+    const { core, onLecturesChanged, emitMessage, emitExit } = createProcess();
+    emitMessage({
+      type: 'lectures.changed',
+      view: {
+        ...view,
+        import: { status: 'running' as const, stage: 'group' as const },
+      },
+    });
+    onLecturesChanged.mockClear();
+    emitExit(1);
+    expect(core.getLecturesView()).toEqual(view);
+    expect(onLecturesChanged).toHaveBeenCalledWith(view);
+  });
+
   it('sends the initial show-window setting before queued commands flush', () => {
     const fake = createFakeChild();
     const core = new CoreProcess(
