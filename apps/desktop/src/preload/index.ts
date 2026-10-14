@@ -8,6 +8,7 @@ import type {
   LoginInput,
 } from '../shared/ipc-contract.js';
 import type { OnboardingState } from '../shared/onboarding.js';
+import type { LecturesView } from '../shared/lectures.js';
 import type { BrowserChoice, BrowserView } from '../shared/browser-choice.js';
 
 function subscribe<T>(
@@ -43,6 +44,23 @@ const api: DesktopApi = {
     setAutostart: (enabled: boolean) =>
       ipcRenderer.invoke(CHANNELS.app.setAutostart, enabled),
     quit: () => ipcRenderer.invoke(CHANNELS.app.quit),
+    getShowLectureWindow: () =>
+      ipcRenderer.invoke(CHANNELS.app.getShowLectureWindow),
+    setShowLectureWindow: (show: boolean) =>
+      ipcRenderer.invoke(CHANNELS.app.setShowLectureWindow, show),
+  },
+  lectures: {
+    getView: () => ipcRenderer.invoke(CHANNELS.lectures.getView),
+    importNow: () => ipcRenderer.invoke(CHANNELS.lectures.importNow),
+    stopCurrent: () => ipcRenderer.invoke(CHANNELS.lectures.stopCurrent),
+    setSkipped: (jobId: string, occurrenceId: string, skipped: boolean) =>
+      ipcRenderer.invoke(
+        CHANNELS.lectures.setSkipped,
+        jobId,
+        occurrenceId,
+        skipped,
+      ),
+    onChanged: subscribe<LecturesView>(CHANNELS.lectures.changed),
   },
   core: {
     getStatus: () => ipcRenderer.invoke(CHANNELS.core.getStatus),
