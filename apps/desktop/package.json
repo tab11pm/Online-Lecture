@@ -15,7 +15,8 @@
     "@modelcontextprotocol/sdk": "^1.0.0",
     "playwright": "^1.52.0",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "sdo_mcp": "github:tab11pm/sdo-mcp#v1.2.0"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^7.0.1",
