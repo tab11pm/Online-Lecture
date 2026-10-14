@@ -4,7 +4,7 @@ import { z } from 'zod';
 import type { Job, LectureTarget } from '../core/types.js';
 
 const time = z.string().regex(/^\d{2}:\d{2}$/, 'time must use HH:MM');
-const target = z
+const targetFields = z
   .object({
     type: z.enum(['search', 'direct']),
     courseId: z.string().min(1).optional(),
@@ -13,6 +13,12 @@ const target = z
     activityUrl: z.string().url().optional(),
   })
   .superRefine((value, context) => {
+    if (value.type === 'search' && value.activityUrl !== undefined) {
+      context.addIssue({
+        code: 'custom',
+        message: 'target.type=search cannot include activityUrl',
+      });
+    }
     if (value.type === 'search' && !value.courseId && !value.courseName) {
       context.addIssue({
         code: 'custom',
@@ -21,11 +27,14 @@ const target = z
     }
     if (
       value.type === 'direct' &&
-      (value.courseId !== undefined || value.courseName !== undefined || value.lectureQuery !== undefined)
+      (value.courseId !== undefined ||
+        value.courseName !== undefined ||
+        value.lectureQuery !== undefined)
     ) {
       context.addIssue({
         code: 'custom',
-        message: 'target.type=direct cannot include courseId, courseName, or lectureQuery',
+        message:
+          'target.type=direct cannot include courseId, courseName, or lectureQuery',
       });
     }
     if (value.type === 'direct' && value.activityUrl === undefined) {
@@ -46,6 +55,23 @@ const target = z
       });
     }
   });
+
+const target = z.preprocess((value, context) => {
+  if (typeof value === 'object' && value !== null) {
+    for (const [legacyKey, replacement] of [
+      ['course', 'courseName'],
+      ['lecture', 'lectureQuery'],
+    ] as const) {
+      if (Object.prototype.hasOwnProperty.call(value, legacyKey)) {
+        context.addIssue({
+          code: 'custom',
+          message: `target.${legacyKey} is obsolete; use target.${replacement}`,
+        });
+      }
+    }
+  }
+  return value;
+}, targetFields);
 
 const schema = z.object({
   id: z.string().min(1),

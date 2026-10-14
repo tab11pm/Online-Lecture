@@ -7,7 +7,7 @@ schedule:
   leaveAt: '11:35'
   timezone: Asia/Krasnoyarsk
 target:
-  type: url
-  url: 'https://bbb2.tusur.ru/html5client/'
+  type: direct
+  activityUrl: 'https://bbb2.tusur.ru/html5client/'
 browser:
   headless: false
