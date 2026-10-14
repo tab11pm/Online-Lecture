@@ -62,6 +62,7 @@ const fake = vi.hoisted(() => {
   return {
     api,
     getView,
+    listenerCount: () => listeners.size,
     emit: (view: LecturesView) => {
       for (const listener of listeners) listener(view);
     },
@@ -96,6 +97,7 @@ beforeEach(() => {
   vi.mocked(fake.api.lectures.stopCurrent).mockClear();
   vi.mocked(fake.api.lectures.setSkipped).mockClear();
   vi.mocked(fake.api.app.setShowLectureWindow).mockClear();
+  vi.mocked(fake.api.app.getShowLectureWindow).mockClear();
   show({});
 });
 
@@ -318,5 +320,108 @@ describe('main screen', () => {
     expect(
       await screen.findByText('Ближайшая: понедельник 08:50 Информатика'),
     ).toBeVisible();
+  });
+
+  it('reverts the lecture window setting when saving fails', async () => {
+    vi.mocked(fake.api.app.setShowLectureWindow).mockRejectedValueOnce(
+      new Error('Не удалось сохранить'),
+    );
+    render(<App />);
+    const toggle = await screen.findByRole('checkbox', {
+      name: 'Показывать окно лекции',
+    });
+    fireEvent.click(toggle);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Не удалось сохранить',
+    );
+    expect(toggle).not.toBeChecked();
+  });
+
+  it('reverts autostart when saving fails', async () => {
+    vi.mocked(fake.api.app.setAutostart).mockRejectedValueOnce(
+      new Error('Автозапуск недоступен'),
+    );
+    render(<App />);
+    const toggle = await screen.findByRole('checkbox', {
+      name: /запускать при старте/i,
+    });
+    fireEvent.click(toggle);
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Автозапуск недоступен',
+    );
+    expect(toggle).not.toBeChecked();
+  });
+
+  it('starts the lecture window setting from the stored value', async () => {
+    vi.mocked(fake.api.app.getShowLectureWindow).mockResolvedValueOnce(true);
+    render(<App />);
+    const toggle = await screen.findByRole('checkbox', {
+      name: 'Показывать окно лекции',
+    });
+    await waitFor(() => expect(toggle).toBeChecked());
+  });
+
+  it('falls back to showing the lecture window when reading fails', async () => {
+    vi.mocked(fake.api.app.getShowLectureWindow).mockRejectedValueOnce(
+      new Error('boom'),
+    );
+    render(<App />);
+    const toggle = await screen.findByRole('checkbox', {
+      name: 'Показывать окно лекции',
+    });
+    await waitFor(() => expect(toggle).toBeChecked());
+  });
+
+  it('shows an alert when stopping fails', async () => {
+    show({
+      current: {
+        jobId: 'job-1',
+        occurrenceId: 'occ-1',
+        title: 'Физика',
+        leaveAt: '2026-10-19T10:25:00+07:00',
+        status: 'connected',
+      },
+    });
+    vi.mocked(fake.api.lectures.stopCurrent).mockRejectedValueOnce(
+      new Error('Не удалось остановить'),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Остановить' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Не удалось остановить',
+    );
+  });
+
+  it('shows an alert when the import request fails', async () => {
+    vi.mocked(fake.api.lectures.importNow).mockRejectedValueOnce(
+      new Error('Импорт недоступен'),
+    );
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Обновить расписание' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Импорт недоступен',
+    );
+  });
+
+  it('shows an alert when skipping fails', async () => {
+    show({ agenda: [item()] });
+    vi.mocked(fake.api.lectures.setSkipped).mockRejectedValueOnce(
+      new Error('Не удалось пропустить'),
+    );
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Пропустить' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Не удалось пропустить',
+    );
+  });
+
+  it('unsubscribes from lecture updates on unmount', async () => {
+    const { unmount } = render(<App />);
+    await screen.findByRole('button', { name: 'Обновить расписание' });
+    expect(fake.listenerCount()).toBe(1);
+    unmount();
+    expect(fake.listenerCount()).toBe(0);
   });
 });
