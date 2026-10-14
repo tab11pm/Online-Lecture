@@ -10,6 +10,10 @@ import {
 } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { DesktopApi, LoginInput } from '../../src/shared/ipc-contract.js';
+import type {
+  BrowserChoice,
+  BrowserView,
+} from '../../src/shared/browser-choice.js';
 import type { OnboardingState } from '../../src/shared/onboarding.js';
 
 const PASSWORD = 'super-secret-password';
@@ -41,9 +45,31 @@ const fake = vi.hoisted(() => {
     };
   });
   const noop = vi.fn(() => Promise.resolve());
+  const browserListeners = new Set<(view: BrowserView) => void>();
+  let browserView: BrowserView = {
+    choice: 'edge',
+    install: { status: 'missing' },
+  };
+  const getBrowser = vi.fn(() => Promise.resolve(browserView));
+  const setBrowser = vi.fn((choice: BrowserChoice) => {
+    browserView = { ...browserView, choice };
+    return Promise.resolve(browserView);
+  });
+  const installChromium = vi.fn(() => {
+    browserView = { choice: 'chromium', install: { status: 'available' } };
+    return Promise.resolve(browserView);
+  });
+  const onBrowserChanged = vi.fn((listener: (view: BrowserView) => void) => {
+    browserListeners.add(listener);
+    return () => browserListeners.delete(listener);
+  });
   const api: DesktopApi = {
     onboarding: { getState, login, openManualSso, checkSession, onChanged },
     app: {
+      getBrowser,
+      setBrowser,
+      installChromium,
+      onBrowserChanged,
       getInfo: vi.fn(() =>
         Promise.resolve({ version: '0.0.0', autostart: false }),
       ),
@@ -61,7 +87,24 @@ const fake = vi.hoisted(() => {
     },
   };
   (window as unknown as { desktop: DesktopApi }).desktop = api;
-  return { api, emit, getState, login, openManualSso, checkSession };
+  return {
+    api,
+    emit,
+    getState,
+    login,
+    openManualSso,
+    checkSession,
+    getBrowser,
+    setBrowser,
+    installChromium,
+    setBrowserView: (view: BrowserView) => {
+      browserView = view;
+    },
+    emitBrowser: (view: BrowserView) => {
+      browserView = view;
+      for (const listener of browserListeners) listener(view);
+    },
+  };
 });
 
 import { App } from '../../src/renderer/src/App';
@@ -78,6 +121,13 @@ function consoleOutput(): string {
   return JSON.stringify(consoleLogs.map((entry) => entry.args));
 }
 
+async function readyRadio(name: string | RegExp): Promise<HTMLElement> {
+  await waitFor(() =>
+    expect(screen.getByRole('radio', { name })).toBeEnabled(),
+  );
+  return screen.getByRole('radio', { name });
+}
+
 beforeEach(() => {
   consoleLogs.length = 0;
   fake.getState.mockClear();
@@ -86,6 +136,13 @@ beforeEach(() => {
   fake.checkSession.mockClear();
   vi.mocked(fake.api.app.getInfo).mockClear();
   vi.mocked(fake.api.app.setAutostart).mockClear();
+  fake.setBrowserView({ choice: 'edge', install: { status: 'missing' } });
+  fake.getBrowser.mockClear();
+  fake.setBrowser.mockClear();
+  fake.installChromium.mockReset();
+  fake.installChromium.mockImplementation(() =>
+    Promise.resolve({ choice: 'chromium', install: { status: 'available' } }),
+  );
 });
 
 afterEach(() => {
@@ -93,6 +150,99 @@ afterEach(() => {
 });
 
 describe('onboarding UI', () => {
+  it('offers Chromium installation from the credentials screen', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    render(<App />);
+    fireEvent.click(await readyRadio('Chromium'));
+    expect(
+      screen.getByRole('button', { name: 'Установить Chromium' }),
+    ).toBeVisible();
+    expect(fake.setBrowser).not.toHaveBeenCalled();
+  });
+
+  it('shows the missing-browser reason if login was attempted', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    fake.login.mockRejectedValueOnce(
+      new Error('Установите Chromium в приложении.'),
+    );
+    render(<App />);
+    fireEvent.change(await screen.findByLabelText('Логин'), {
+      target: { value: 'student' },
+    });
+    fireEvent.change(screen.getByLabelText('Пароль'), {
+      target: { value: PASSWORD },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Установите Chromium',
+    );
+  });
+
+  it('selects Chromium after its installation finishes', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    render(<App />);
+    fireEvent.click(await readyRadio('Chromium'));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Установить Chromium' }),
+    );
+    await waitFor(() => expect(fake.installChromium).toHaveBeenCalledTimes(1));
+    expect(
+      await screen.findByRole('radio', { name: 'Chromium' }),
+    ).toBeChecked();
+  });
+
+  it('disables a second installation request while downloading', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    fake.installChromium.mockImplementationOnce(() => new Promise(() => {}));
+    render(<App />);
+    fireEvent.click(await readyRadio('Chromium'));
+    const install = screen.getByRole('button', { name: 'Установить Chromium' });
+    fireEvent.click(install);
+    expect(install).toBeDisabled();
+    fireEvent.click(install);
+    expect(fake.installChromium).toHaveBeenCalledTimes(1);
+  });
+
+  it('offers retry after an installation error', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    fake.installChromium.mockResolvedValueOnce({
+      choice: 'edge',
+      install: { status: 'error', message: 'Ошибка загрузки' },
+    });
+    render(<App />);
+    fireEvent.click(await readyRadio('Chromium'));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Установить Chromium' }),
+    );
+    expect(
+      await screen.findByRole('button', { name: 'Повторить установку' }),
+    ).toBeVisible();
+    expect(screen.getByRole('alert')).toHaveTextContent('Ошибка загрузки');
+  });
+
+  it('allows changing the browser after login', async () => {
+    fake.getState.mockResolvedValue({ phase: 'session_ready' });
+    fake.setBrowserView({
+      choice: 'chromium',
+      install: { status: 'available' },
+    });
+    render(<App />);
+    fireEvent.click(await readyRadio(/Edge/));
+    await waitFor(() => expect(fake.setBrowser).toHaveBeenCalledWith('edge'));
+  });
+
+  it('explains when an external browser setting overrides the choice', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    fake.setBrowserView({
+      choice: 'edge',
+      install: { status: 'missing' },
+      externalChannel: '',
+    });
+    render(<App />);
+    expect(
+      await screen.findByText(/внешняя настройка браузера/i),
+    ).toBeVisible();
+  });
   it('renders a start button in the welcome phase', async () => {
     fake.getState.mockResolvedValue({ phase: 'welcome' });
 
