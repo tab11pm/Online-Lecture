@@ -6,6 +6,12 @@ apps/*/dist/
 coverage/
 .data/
 
+# Local SQLite databases and their backups (never commit, see AGENTS.md)
+data/
+*.db
+*.sqlite
+*.sqlite3
+
 # TUSUR SSO Playwright storage state (secrets)
 auth.json
 *.auth.json
