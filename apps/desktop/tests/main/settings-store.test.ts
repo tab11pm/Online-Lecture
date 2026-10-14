@@ -30,4 +30,19 @@ describe('SettingsStore', () => {
     await writeFile(file, '{ not json');
     expect(await new SettingsStore(file).read()).toEqual({ autostart: false });
   });
+
+  it('persists a Chromium browser choice', async () => {
+    const store = new SettingsStore(join(dir, 'settings.json'));
+    await store.update({ browser: 'chromium' });
+    expect(await new SettingsStore(join(dir, 'settings.json')).read()).toEqual({
+      autostart: false,
+      browser: 'chromium',
+    });
+  });
+
+  it('ignores a damaged browser choice', async () => {
+    const file = join(dir, 'settings.json');
+    await writeFile(file, '{"autostart":false,"browser":"safari"}');
+    expect(await new SettingsStore(file).read()).toEqual({ autostart: false });
+  });
 });

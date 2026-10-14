@@ -1,5 +1,6 @@
 import { access } from 'node:fs/promises';
 import { chromium } from 'playwright';
+import { assertBrowserAvailable } from '../core/browser-launch.js';
 import type { HttpFetcher } from './http-fetcher.js';
 
 const DEFAULT_BASE_URL = 'https://timetable.tusur.ru';
@@ -7,6 +8,7 @@ const DEFAULT_BASE_URL = 'https://timetable.tusur.ru';
 export interface PlaywrightFetcherOptions {
   authStatePath: string;
   baseUrl?: string;
+  channel?: 'msedge';
 }
 
 export type PlaywrightFetcher = HttpFetcher & { close(): Promise<void> };
@@ -14,6 +16,7 @@ export type PlaywrightFetcher = HttpFetcher & { close(): Promise<void> };
 export async function createPlaywrightFetcher({
   authStatePath,
   baseUrl = DEFAULT_BASE_URL,
+  channel,
 }: PlaywrightFetcherOptions): Promise<PlaywrightFetcher> {
   try {
     await access(authStatePath);
@@ -21,7 +24,8 @@ export async function createPlaywrightFetcher({
     throw new Error(`Auth state file not found: ${authStatePath}`);
   }
 
-  const browser = await chromium.launch();
+  await assertBrowserAvailable(channel);
+  const browser = await chromium.launch(channel ? { channel } : undefined);
   let context;
   try {
     context = await browser.newContext({ storageState: authStatePath });

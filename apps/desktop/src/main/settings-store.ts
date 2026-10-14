@@ -1,9 +1,11 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
+import type { BrowserChoice } from '../shared/browser-choice.js';
 
 export interface AppSettings {
   autostart: boolean;
   username?: string;
+  browser?: BrowserChoice;
 }
 
 export interface SettingsStore {
@@ -27,6 +29,9 @@ function parseSettings(raw: string): AppSettings | undefined {
   const settings: AppSettings = { autostart: record['autostart'] === true };
   if (typeof record['username'] === 'string') {
     settings.username = record['username'];
+  }
+  if (record['browser'] === 'edge' || record['browser'] === 'chromium') {
+    settings.browser = record['browser'];
   }
   return settings;
 }
@@ -59,6 +64,9 @@ const SettingsStore = class SettingsStoreImpl implements SettingsStore {
     }
     if (typeof patch.username === 'string') {
       next.username = patch.username;
+    }
+    if (patch.browser === 'edge' || patch.browser === 'chromium') {
+      next.browser = patch.browser;
     }
     await mkdir(dirname(this.filePath), { recursive: true });
     await writeFile(this.filePath, JSON.stringify(next, null, 2), 'utf8');
