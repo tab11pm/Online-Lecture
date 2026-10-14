@@ -20,6 +20,33 @@ browser:
 `;
 
 describe('parseJobConfig', () => {
+  it.each([
+    ['courseId', 'course', 'target.course is obsolete; use target.courseName'],
+    [
+      'lectureQuery',
+      'lecture',
+      'target.lecture is obsolete; use target.lectureQuery',
+    ],
+  ])(
+    'rejects legacy %s key %s with migration guidance',
+    (currentKey, legacyKey, diagnostic) => {
+      expect(() =>
+        parseJobConfig(weeklyConfig.replace(`${currentKey}:`, `${legacyKey}:`)),
+      ).toThrow(diagnostic);
+    },
+  );
+
+  it('rejects a search target with a direct activity URL', () => {
+    expect(() =>
+      parseJobConfig(
+        weeklyConfig.replace(
+          'type: search',
+          'type: search\n  activityUrl: https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
+        ),
+      ),
+    ).toThrow('target.type=search cannot include activityUrl');
+  });
+
   it('parses a weekly technical YAML job', () => {
     expect(parseJobConfig(weeklyConfig)).toMatchObject({
       id: 'math-monday',
@@ -36,7 +63,9 @@ describe('parseJobConfig', () => {
           'type: direct\n  activityUrl: https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42',
         ),
       ),
-    ).toThrow('target.type=direct cannot include courseId, courseName, or lectureQuery');
+    ).toThrow(
+      'target.type=direct cannot include courseId, courseName, or lectureQuery',
+    );
   });
 
   it.each([
@@ -60,6 +89,8 @@ target:
 browser:
   headless: false
 `),
-    ).toThrow('target.activityUrl must be an HTTPS Moodle BigBlueButton activity URL');
+    ).toThrow(
+      'target.activityUrl must be an HTTPS Moodle BigBlueButton activity URL',
+    );
   });
 });

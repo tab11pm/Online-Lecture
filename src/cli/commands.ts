@@ -240,17 +240,31 @@ export async function executeCli(
 
       // Create and run job
       const runner = new JobRunner(mcpClient, bbbManager, jobRepo, runRepo);
-      const result = await runner.runJob(jobId, occurrenceId);
-
-      // Close managers
-      await mcpClient.close();
-      await bbbManager.closeAll();
-
-      store.close();
+      // SIGINT/SIGTERM abort only this invocation; cleanup settles before exit.
+      const controller = new AbortController();
+      const interrupt = () => controller.abort();
+      process.on('SIGINT', interrupt);
+      process.on('SIGTERM', interrupt);
+      let result;
+      try {
+        result = await runner.runJob(jobId, occurrenceId, controller.signal);
+      } finally {
+        process.removeListener('SIGINT', interrupt);
+        process.removeListener('SIGTERM', interrupt);
+        try {
+          await mcpClient.close();
+        } finally {
+          try {
+            await bbbManager.closeAll();
+          } finally {
+            store.close();
+          }
+        }
+      }
 
       return {
-        exitCode: 0,
-        output: `${result.jobId}\t${result.status}\t${result.completionReason || '-'}\t${result.durationSeconds}s\n`,
+        exitCode: result.status === 'failed' ? 1 : 0,
+        output: `${result.jobId}\t${result.status}\t${result.completionReason || '-'}\t${result.error || '-'}\t${result.durationSeconds}s\n`,
       };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

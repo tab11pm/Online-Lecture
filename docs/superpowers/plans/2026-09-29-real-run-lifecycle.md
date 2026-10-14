@@ -35,6 +35,59 @@
 | `tests/core/job-runner.test.ts` | Repository and controller integration tests. |
 | `tests/fixtures/bbb-lifecycle/*.html` | Non-secret BBB views with documented selectors and expected observation. |
 
+### Task 0: Restore the committed CLI fixture contract
+
+**Files:**
+- Modify: `tests/fixtures/once-job.yml`
+- Modify: `tests/fixtures/invalid-bbb-url.yml`
+- Modify: `tests/integration/mcp-bbb-workflow.test.ts`
+- Modify: `README.md`
+
+**Interfaces:**
+- Consumes: the existing `LectureTarget` discriminated union: `search` or `direct`.
+- Produces: a clean baseline where direct Moodle activities use `{ type: 'direct', activityUrl: string }` consistently.
+
+- [ ] **Step 1: Write a failing CLI fixture smoke test**
+
+The test shall invoke `executeCli` with the once fixture and a temporary SQLite path, then assert that validation succeeds, `run` stores `math-once`, and `run-once math-once` returns `scheduled` for `2026-09-28T03:15:00Z`.
+
+- [ ] **Step 2: Verify the existing mismatch**
+
+Run: `npm test -- tests/integration/mcp-bbb-workflow.test.ts`
+
+Expected: four failures caused by the obsolete `url` target shape, not by Playwright or MCP.
+
+- [ ] **Step 3: Replace the obsolete direct-target shape**
+
+In every fixture and integration mock covered by this task, replace:
+
+```yaml
+type: url
+url: https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42
+```
+
+with:
+
+```yaml
+type: direct
+activityUrl: https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42
+```
+
+Keep the invalid URL fixture invalid by retaining its non-BBB path; only its target keys change. Update README prose to say `direct` and `activityUrl` where it describes the fixture format.
+
+- [ ] **Step 4: Verify the restored baseline**
+
+Run: `npm test`
+
+Expected: 119 tests pass and no test expects `target.type: 'url'`.
+
+- [ ] **Step 5: Commit the contract repair**
+
+```bash
+git add tests/fixtures/once-job.yml tests/fixtures/invalid-bbb-url.yml tests/integration/mcp-bbb-workflow.test.ts README.md
+git commit -m "fix: align CLI target fixtures"
+```
+
 ### Task 1: Repair the OpenSpec change before runtime work
 
 **Files:**

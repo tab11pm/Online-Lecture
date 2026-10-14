@@ -1,12 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { SessionConfig } from '../../src/core/types.js';
+import { readFileSync } from 'node:fs';
+import { JSDOM } from 'jsdom';
+import type { BbbSession, SessionConfig } from '../../src/core/types.js';
 import { chromium } from 'playwright';
 
+// Mock Playwright first, before any imports
 vi.mock('../../src/core/browser-launch.js', () => ({
   assertBrowserAvailable: vi.fn().mockResolvedValue(undefined),
 }));
-
-// Mock Playwright first, before any imports
 vi.mock('playwright', () => ({
   chromium: {
     launch: vi.fn().mockResolvedValue({
@@ -114,6 +115,99 @@ describe('PlaywrightBbbSessionManager', () => {
       expect(state.isAudioEnabled).toBe(true);
       expect(state.isVideoEnabled).toBe(false);
       expect(state.meetingStatus).toBe('connected');
+    });
+  });
+
+  describe('observe', () => {
+    function sessionWithDom(html: string): BbbSession {
+      const dom = new JSDOM(html, { runScripts: 'outside-only' });
+      return {
+        page: {
+          evaluate: vi.fn(async (callback: () => unknown) => {
+            try {
+              return dom.window.eval(`(${callback.toString()})()`);
+            } finally {
+              dom.window.close();
+            }
+          }),
+        },
+        status: 'joined',
+        url: 'https://bbb2.tusur.ru/test',
+        startedAt: new Date(),
+      };
+    }
+
+    it('reports connected from the maintained audio indicator fixture without leaving', async () => {
+      const html = readFileSync(
+        new URL('../fixtures/bbb-lifecycle/connected.html', import.meta.url),
+        'utf8',
+      );
+      const session = sessionWithDom(html);
+      const leave = vi.spyOn(manager, 'leaveSession');
+
+      await expect(
+        manager.observe(session, new AbortController().signal),
+      ).resolves.toEqual({ kind: 'connected' });
+      expect(session.status).toBe('joined');
+      expect(leave).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      '<main></main>',
+      '<main>Disconnected</main>',
+      '<button data-testid="leave-button">Leave</button>',
+    ])(
+      'rejects unrecognized DOM without inferring a terminal event: %s',
+      async (html) => {
+        await expect(
+          manager.observe(sessionWithDom(html), new AbortController().signal),
+        ).rejects.toMatchObject({ name: 'UnsupportedBbbObservationError' });
+      },
+    );
+
+    it('respects cancellation before accessing the page', async () => {
+      const abort = new AbortController();
+      abort.abort();
+      const session = sessionWithDom('<main></main>');
+
+      await expect(
+        manager.observe(session, abort.signal),
+      ).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+      expect(session.page.evaluate).not.toHaveBeenCalled();
+    });
+
+    it('returns a redacted network error when page evaluation fails', async () => {
+      const session = sessionWithDom('<main></main>');
+      session.page.evaluate.mockRejectedValue(
+        new Error(
+          'Navigation failed https://bbb2.tusur.ru/join?sessionToken=secret',
+        ),
+      );
+
+      await expect(
+        manager.observe(session, new AbortController().signal),
+      ).resolves.toEqual({
+        kind: 'network_error',
+        message: 'Navigation failed [REDACTED_URL]',
+      });
+      expect(session.status).toBe('joined');
+    });
+
+    it('preserves cancellation during evaluation instead of reporting a network error', async () => {
+      const abort = new AbortController();
+      const session = sessionWithDom('<main></main>');
+      session.page.evaluate.mockImplementation(async () => {
+        abort.abort();
+        throw new Error('Page closed');
+      });
+
+      await expect(
+        manager.observe(session, abort.signal),
+      ).rejects.toMatchObject({
+        name: 'AbortError',
+      });
     });
   });
 

@@ -97,7 +97,15 @@ E2E (`apps/desktop/tests/e2e/onboarding.test.ts`) — vitest + Playwright `_elec
 - `src/cli/index.ts` грузит `.env` через `process.loadEnvFile('.env')` (отсутствие файла — ок); шаблон — `.env.example`.
 - `playwright-fetcher.ts` при `content-type: application/json` возвращает сырое тело ответа, а не обёртку JSON-viewer'а Chromium (нужно для `course_links`).
 
-## Что ещё НЕ сделано
+## Жизненный цикл лекции (перенесён из `codex/ready-online-lecture`)
+
+- `src/core/lecture-session-controller.ts` — единственное место, где решаются переходы запуска: жёсткий `leaveAt` (нет входа/переподключения после него, причина `deadline`), повторы 5/15/30 с, четвёртая ошибка → `failed/error`, `moderator_removed` → `blocked` без повторов, `AbortSignal` → `completed/manual` только после закрытия браузера.
+- `JobRunner.runJob(jobId, occurrenceId, signal?)` атомарно забирает запуск (`RunRepository.claimScheduled`/`skipScheduled`), резолвит цель через текущий `resolveOnlineLecture` и передаёт BBB-порт контроллеру. Повторный вызов для уже начатого/завершённого вхождения браузер не открывает.
+- `PlaywrightBbbSessionManager.startSession(url, config, signal?)` — прерываемый и ограниченный по времени старт, очистка ресурсов при отмене; `channel` из выбора браузера сохранён.
+- CLI `run-job`: SIGINT/SIGTERM прерывают только активный запуск и ждут выхода из BBB; код выхода 1 при `failed`, в выводе — отредактированная ошибка.
+- **Ограничение:** адаптер распознаёт только `connected` (`[data-testid="audio-connected"]`, фикстура `tests/fixtures/bbb-lifecycle/connected.html`). Waiting-room, конец встречи и удаление модератором без подтверждённых селекторов не угадываются: такая страница даёт `UnsupportedBbbObservationError` → `failed/error`. Нужна проверка на живой BBB и фикстуры реальных страниц.
+
+
 
 1. **Slice 2 Electron:** список лекций/правки/«Перенести» в UI, уведомления/журнал, интеграция импорта в приложение.
 2. **Фаза 4:** Windows-упаковка одним установщиком (electron-builder) и реальная проверка на Windows.

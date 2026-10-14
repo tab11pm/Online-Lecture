@@ -12,6 +12,33 @@ const scheduledRun: Run = {
 };
 
 describe('run lifecycle', () => {
+  it.each(['joining', 'waiting_room'] as const)(
+    'allows a technical failure while %s to reconnect',
+    (status) => {
+      const reconnecting = transitionRun(
+        { ...scheduledRun, status },
+        'reconnecting',
+        '2026-09-28T10:00:01Z',
+      );
+      expect(
+        transitionRun(reconnecting, 'joining', '2026-09-28T10:00:06Z'),
+      ).toMatchObject({ status: 'joining' });
+    },
+  );
+
+  it.each(['blocked', 'failed'] as const)(
+    'allows cleanup to finish as %s',
+    (status) => {
+      expect(
+        transitionRun(
+          { ...scheduledRun, status: 'leaving' },
+          status,
+          '2026-09-28T10:00:01Z',
+        ),
+      ).toMatchObject({ status });
+    },
+  );
+
   it('allows a connected lecture to leave and complete with a reason', () => {
     const resolving = transitionRun(
       scheduledRun,

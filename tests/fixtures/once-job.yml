@@ -7,7 +7,7 @@ schedule:
   leaveAt: '11:35'
   timezone: Asia/Krasnoyarsk
 target:
-  type: url
-  url: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42'
+  type: direct
+  activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=42'
 browser:
   headless: false

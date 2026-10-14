@@ -1,22 +1,62 @@
+import { LectureSessionController } from './lecture-session-controller.js';
+import { completeRun, transitionRun } from './lifecycle.js';
+import { findActiveOccurrence } from './occurrence.js';
 import { redactSensitiveText } from './redaction.js';
 import type {
-  Job,
-  Occurrence,
   Run,
   RunStatus,
   CompletionReason,
   JobRepository,
   RunRepository,
-  SessionConfig,
-  BbbSession,
-  SessionState,
+  BbbSessionPort,
+  BbbObservation,
 } from './types.js';
 import type { SdoMcpClient } from './mcp-client.js';
 import type { PlaywrightBbbSessionManager } from './bbb-session.js';
 
-/**
- * Result of running a job
- */
+function sleep(milliseconds: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      clearTimeout(timer);
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    };
+    const timer = setTimeout(() => {
+      signal.removeEventListener('abort', onAbort);
+      resolve();
+    }, milliseconds);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+}
+
+function interruptible<T>(
+  operation: Promise<T>,
+  signal: AbortSignal,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const onAbort = () => {
+      signal.removeEventListener('abort', onAbort);
+      reject(signal.reason);
+    };
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) {
+      onAbort();
+      return;
+    }
+    operation.then(
+      (value) => {
+        signal.removeEventListener('abort', onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
 export interface RunResult {
   jobId: string;
   occurrenceId: string;
@@ -27,9 +67,6 @@ export interface RunResult {
   durationSeconds: number;
 }
 
-/**
- * Coordinates job execution: MCP client + BBB session manager
- */
 export class JobRunner {
   constructor(
     private mcpClient: SdoMcpClient,
@@ -38,10 +75,11 @@ export class JobRunner {
     private runRepo: RunRepository,
   ) {}
 
-  /**
-   * Run a complete job: get URL → join BBB → monitor → leave
-   */
-  async runJob(jobId: string, occurrenceId: string): Promise<RunResult> {
+  async runJob(
+    jobId: string,
+    occurrenceId: string,
+    signal: AbortSignal = new AbortController().signal,
+  ): Promise<RunResult> {
     const startTime = Date.now();
     const result: RunResult = {
       jobId,
@@ -49,178 +87,257 @@ export class JobRunner {
       status: 'scheduled',
       durationSeconds: 0,
     };
-
+    let run: Run | undefined;
+    let owned = false;
+    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let onAbort: (() => void) | undefined;
+    const preflight = new AbortController();
+    let leaveAt = Number.POSITIVE_INFINITY;
+    const stopReason = (): 'manual' | 'deadline' | undefined => {
+      if (signal.aborted) return 'manual';
+      if (Date.now() >= leaveAt) return 'deadline';
+      return undefined;
+    };
+    const update = async (next: Run): Promise<Run> => {
+      await this.runRepo.update(next);
+      run = next;
+      return next;
+    };
     try {
-      // Load job configuration
-      const job = await this.jobRepo.getById(jobId);
-      if (!job) {
-        throw new Error(`Job not found: ${jobId}`);
-      }
-
-      // Get or create run record
-      const { run: dbRun } = await this.runRepo.getOrCreate({
+      const claimed = await this.runRepo.getOrCreate({
         jobId,
         occurrenceId,
-        status: 'resolving',
+        status: 'scheduled',
         createdAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       });
-
-      // Resolve BBB URL
-      let bbbUrl = '';
-
-      if (job.target.type === 'direct') {
-        // Direct URL target
-        bbbUrl = job.target.activityUrl;
-        result.status = 'joining';
-        dbRun.status = 'joining';
-      } else if (job.target.type === 'search') {
-        // Search for URL via MCP
-        result.status = 'resolving';
-        dbRun.status = 'resolving';
-
-        try {
-          const courseQuery =
-            job.target.courseName || job.target.courseId || undefined;
-
-          if (courseQuery === undefined) {
-            throw new Error('Search target requires courseName or courseId');
-          }
-
-          const resolution = await this.mcpClient.resolveOnlineLecture({
-            courseQuery,
-            lectureQuery: job.target.lectureQuery || 'Lecture',
-          });
-
-          if (resolution.status === 'auth_required') {
-            throw new Error(
-              'SDO authentication required: refresh SDO_AUTH_STATE_PATH',
-            );
-          }
-          if (resolution.status === 'not_found') {
-            throw new Error(`Lecture not found for course: ${courseQuery}`);
-          }
-          if (resolution.status === 'ambiguous') {
-            throw new Error(
-              `Multiple lectures matched for course: ${courseQuery}`,
-            );
-          }
-
-          bbbUrl = resolution.module.activityUrl;
-
-          // Release the MCP server once the Moodle URL is resolved.
-          await this.mcpClient.close();
-        } catch (error) {
-          throw new Error(
-            `Failed to resolve URL via MCP: ${error instanceof Error ? error.message : 'Unknown error'}`,
-          );
-        }
-
-        result.status = 'joining';
-        dbRun.status = 'joining';
-      } else {
-        throw new Error(
-          'Cannot resolve target: direct type requires activityUrl, search type requires a course',
-        );
+      run = claimed.run;
+      if (run.status !== 'scheduled') {
+        return {
+          ...result,
+          status: run.status,
+          completionReason: run.completionReason,
+        };
       }
-
-      result.bbbUrl = redactSensitiveText(bbbUrl);
-      await this.runRepo.update(dbRun);
-
-      // Start BBB session
-      const sessionConfig: SessionConfig = {
-        headless: job.browser.headless,
-        timeout: 30000,
-        joinTimeout: 10000,
-      };
-
-      let session: BbbSession | null = null;
-
-      try {
-        session = await this.bbbManager.startSession(bbbUrl, sessionConfig);
-
-        // Join session
-        result.status = 'joining';
-        dbRun.status = 'joining';
-        await this.runRepo.update(dbRun);
-
-        await this.bbbManager.joinAsListener(session);
-
-        // Monitor session
-        result.status = 'connected';
-        dbRun.status = 'connected';
-        await this.runRepo.update(dbRun);
-
-        // Monitor for up to 4 hours or until session ends
-        const maxMonitorTime = 4 * 60 * 60 * 1000; // 4 hours max
-        try {
-          await this.bbbManager.monitorSession(session);
-          result.completionReason = 'meeting_ended';
-        } catch (error) {
-          // Timeout or monitoring error
-          if (error instanceof Error && error.message.includes('timeout')) {
-            result.completionReason = 'deadline';
-          } else {
-            result.completionReason = 'error';
-          }
-        }
-      } catch (error) {
-        result.status = 'failed';
-        result.error = redactSensitiveText(
-          error instanceof Error ? error.message : 'Unknown error',
-        );
-        result.completionReason = 'error';
-      } finally {
-        // Always leave session
-        if (session) {
-          try {
-            result.status = 'leaving';
-            dbRun.status = 'leaving';
-            await this.runRepo.update(dbRun);
-
-            await this.bbbManager.leaveSession(session);
-          } catch (error) {
-            console.warn(
-              `Warning while leaving session: ${error instanceof Error ? error.message : 'Unknown error'}`,
-            );
-          }
-        }
-      }
-
-      // Final status
-      if (result.status !== 'failed') {
-        result.status = 'completed';
-      }
-      dbRun.status = result.status as RunStatus;
-      dbRun.completionReason = result.completionReason;
-      dbRun.updatedAt = new Date().toISOString();
-
-      await this.runRepo.update(dbRun);
-    } catch (error) {
-      result.status = 'failed';
-      result.error = redactSensitiveText(
-        error instanceof Error ? error.message : 'Unknown error',
-      );
-      result.completionReason = 'error';
-
-      // Try to update run repo even on failure
-      try {
-        const { run: dbRun } = await this.runRepo.getOrCreate({
+      const job = await this.jobRepo.getById(jobId);
+      if (!job) throw new Error('Job not found: ' + jobId);
+      const occurrence = findActiveOccurrence(job, new Date());
+      if (!occurrence || occurrence.id !== occurrenceId) {
+        const skipped = await this.runRepo.skipScheduled(
           jobId,
           occurrenceId,
-          status: 'failed',
-          completionReason: 'error',
-          createdAt: new Date().toISOString(),
-          updatedAt: new Date().toISOString(),
-        });
-        dbRun.status = 'failed';
-        dbRun.completionReason = 'error';
-        await this.runRepo.update(dbRun);
-      } catch (e) {
-        // Ignore secondary errors
+          new Date().toISOString(),
+        );
+        run = skipped ?? (await this.runRepo.getOrCreate(run)).run;
+      } else {
+        const activeRun = await this.runRepo.claimScheduled(
+          jobId,
+          occurrenceId,
+          new Date().toISOString(),
+        );
+        if (!activeRun) {
+          const current = await this.runRepo.getOrCreate(run);
+          return {
+            ...result,
+            status: current.run.status,
+            completionReason: current.run.completionReason,
+          };
+        }
+        run = activeRun;
+        owned = true;
+        leaveAt = Date.parse(occurrence.leaveAt);
+        onAbort = () => preflight.abort();
+        signal.addEventListener('abort', onAbort, { once: true });
+        if (signal.aborted) onAbort();
+        deadlineTimer = setTimeout(
+          () => preflight.abort(),
+          Math.max(0, leaveAt - Date.now()),
+        );
+        const finishWithoutSession = async (reason: 'manual' | 'deadline') => {
+          await update(
+            transitionRun(run!, 'leaving', new Date().toISOString()),
+          );
+          await update(completeRun(run!, reason, new Date().toISOString()));
+        };
+        const stoppedBeforeResolution = stopReason();
+        if (stoppedBeforeResolution) {
+          await finishWithoutSession(stoppedBeforeResolution);
+          result.durationSeconds = (Date.now() - startTime) / 1000;
+          return {
+            ...result,
+            status: run!.status,
+            completionReason: run!.completionReason,
+          };
+        }
+        let bbbUrl: string;
+        if (job.target.type === 'direct') {
+          bbbUrl = job.target.activityUrl;
+        } else {
+          try {
+            const resolution = await interruptible(
+              this.mcpClient.resolveOnlineLecture({
+                ...(job.target.courseId
+                  ? {
+                      courseUrl: `https://sdo.tusur.ru/course/view.php?id=${encodeURIComponent(job.target.courseId)}`,
+                    }
+                  : { courseQuery: job.target.courseName || '' }),
+                ...(job.target.lectureQuery
+                  ? { lectureQuery: job.target.lectureQuery }
+                  : {}),
+              }),
+              preflight.signal,
+            );
+            if (resolution.status === 'resolved') {
+              bbbUrl = resolution.module.activityUrl;
+            } else if (resolution.status === 'auth_required') {
+              throw new Error('SDO authentication required');
+            } else if (resolution.status === 'not_found') {
+              throw new Error('Online lecture not found');
+            } else {
+              throw new Error('Online lecture match is ambiguous');
+            }
+          } finally {
+            await this.mcpClient.close();
+          }
+        }
+        const stoppedAfterResolution = stopReason();
+        if (stoppedAfterResolution) {
+          await finishWithoutSession(stoppedAfterResolution);
+          result.durationSeconds = (Date.now() - startTime) / 1000;
+          return {
+            ...result,
+            status: run!.status,
+            completionReason: run!.completionReason,
+          };
+        }
+        result.bbbUrl = redactSensitiveText(bbbUrl);
+        await update(transitionRun(run!, 'joining', new Date().toISOString()));
+        const stoppedBeforeStart = stopReason();
+        if (stoppedBeforeStart) {
+          await finishWithoutSession(stoppedBeforeStart);
+          result.durationSeconds = (Date.now() - startTime) / 1000;
+          return {
+            ...result,
+            status: run!.status,
+            completionReason: run!.completionReason,
+          };
+        }
+        const session = await this.bbbManager.startSession(
+          bbbUrl,
+          {
+            headless: job.browser.headless,
+            timeout: 30000,
+            joinTimeout: 10000,
+          },
+          preflight.signal,
+        );
+        const stoppedAfterStart = stopReason();
+        if (stoppedAfterStart) {
+          try {
+            await this.bbbManager.leaveSession(session);
+          } finally {
+            await finishWithoutSession(stoppedAfterStart);
+          }
+          result.durationSeconds = (Date.now() - startTime) / 1000;
+          return {
+            ...result,
+            status: run!.status,
+            completionReason: run!.completionReason,
+          };
+        }
+        const observe = async (
+          activeSignal: AbortSignal,
+        ): Promise<BbbObservation> => {
+          try {
+            return await this.bbbManager.observe(session, activeSignal);
+          } catch (error) {
+            if (!activeSignal.aborted) {
+              result.error = redactSensitiveText(
+                error instanceof Error ? error.message : String(error),
+              );
+            }
+            throw error;
+          }
+        };
+        const join = async (
+          activeSignal: AbortSignal,
+        ): Promise<BbbObservation> => {
+          activeSignal.throwIfAborted();
+          try {
+            await this.bbbManager.joinAsListener(session);
+          } catch (error) {
+            activeSignal.throwIfAborted();
+            if (
+              error instanceof Error &&
+              error.name === 'UnsupportedBbbObservationError'
+            )
+              throw error;
+            return {
+              kind: 'network_error',
+              message: redactSensitiveText(
+                error instanceof Error ? error.message : String(error),
+              ),
+            };
+          }
+          return observe(activeSignal);
+        };
+        const port: BbbSessionPort = {
+          join: (_session, activeSignal) => join(activeSignal),
+          observe: async (_session, activeSignal) => {
+            await sleep(1000, activeSignal);
+            return observe(activeSignal);
+          },
+          reconnect: async (activeSession, activeSignal) => {
+            try {
+              return await this.bbbManager.reconnect(
+                activeSession,
+                activeSignal,
+              );
+            } catch (error) {
+              if (!activeSignal.aborted) {
+                result.error = redactSensitiveText(
+                  error instanceof Error ? error.message : String(error),
+                );
+              }
+              throw error;
+            }
+          },
+          leave: (activeSession) => this.bbbManager.leaveSession(activeSession),
+        };
+        run = await new LectureSessionController({
+          now: () => new Date(),
+          sleep,
+          update,
+        }).run(run!, occurrence, session, port, signal);
       }
+    } catch (error) {
+      result.error = redactSensitiveText(
+        error instanceof Error ? error.message : String(error),
+      );
+      if (owned && run && ['resolving', 'joining'].includes(run.status)) {
+        const stopped = stopReason();
+        if (stopped) {
+          await update(transitionRun(run, 'leaving', new Date().toISOString()));
+          await update(completeRun(run!, stopped, new Date().toISOString()));
+        } else {
+          await update({
+            ...transitionRun(run, 'failed', new Date().toISOString()),
+            completionReason: 'error',
+          });
+        }
+      }
+      if (!owned || run?.status !== 'completed') {
+        result.status = 'failed';
+        result.completionReason = 'error';
+      }
+    } finally {
+      if (deadlineTimer) clearTimeout(deadlineTimer);
+      if (onAbort) signal.removeEventListener('abort', onAbort);
     }
-
+    if (run && (owned || result.status !== 'failed')) {
+      result.status = run.status;
+      result.completionReason = run.completionReason;
+    }
     result.durationSeconds = (Date.now() - startTime) / 1000;
     return result;
   }

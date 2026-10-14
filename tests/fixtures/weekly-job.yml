@@ -8,7 +8,7 @@ schedule:
   timezone: Asia/Krasnoyarsk
 target:
   type: search
-  courseId: 'Математика'
+  courseName: 'Математика'
   lectureQuery: 'Онлайн-лекция'
 browser:
   headless: false

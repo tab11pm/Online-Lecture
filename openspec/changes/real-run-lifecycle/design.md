@@ -1,206 +1,35 @@
 # Design
 
-## Overview
+## Context
 
-Реализует полный runtime lifecycle BBB-сессии с проверкой deadline, retry политикой и graceful shutdown.
+Утверждённый дизайн: `docs/superpowers/specs/2026-09-29-real-run-lifecycle-design.md`. После получения Moodle BBB activity URL запуск должен сохранять активную сессию до подтверждённого терминального события. Единственный успешный вызов наблюдения не является окончанием лекции.
 
-## Architecture
+## Goals / Non-Goals
 
-```
-JobRunner.runJob(jobId, occurrenceId)
-    │
-    ├─▶ jobRepo.getById(jobId) → Job
-    │       │
-    │       └─▶ findActiveOccurrence(job, now) → Occurrence (joinAt, leaveAt, timezone)
-    │
-    ├─▶ runRepo.getOrCreate() → Run
-    │
-    ├─▶ bbbManager.startSession(url, config)
-    │       └─▶ передаём Occurrence в config
-    │
-    ├─▶ BbbMonitor.start(session, occurrence, abortSignal) → BbbMonitorResult
-    │       │
-    │       ├─▶ monitor loop с checkIntervalMs
-    │       │   │
-    │       │   ├─▶ deadline check (leaveIfDeadlineReached)
-    │       │   ├─▶ meeting status (meeting_ended, moderator_removed)
-    │       │   └─▶ reconnect logic (nextRetryDelay)
-    │       │
-    │       └─▶ events: connected, waiting_room, meeting_ended, deadline_reached,
-    │                    network_error, moderator_removed, manual_stop
-    │
-    ├─▶ bbbManager.leaveSession(session)
-    │
-    └─▶ runRepo.update() с completionReason
+Цели: обеспечить жёсткий `leaveAt`, технические повторы 5/15/30 секунд, ручную отмену, положительные терминальные сигналы и проверяемую очистку браузера.
 
-GracefulShutdown
-    │
-    ├─▶ process.on('SIGINT') / process.on('SIGTERM')
-    │       └─▶ abortSignal.abort()
-    │
-    └─▶ completionReason: manual
-```
+За пределами изменения: авторизация SDO, Electron UI, Windows-инсталлятор и предположительные селекторы реальной BBB-страницы.
 
-## API
+## Decisions
 
-### BbbMonitorConfig (types.ts)
+`JobRunner` разрешает URL и владеет сохранением. Он передаёт контроллеру выбранный `Occurrence`, сессию, браузерный порт, часы, ожидание, функцию сохранения и `AbortSignal`. `LectureSessionController` единолично выбирает переходы, задержки и терминальный результат. Переходы проходят через `transitionRun`, а завершение `completed` — через `completeRun`; требуемые переходы расширяют явный автомат, а не обходят его прямым присваиванием статуса.
 
-```typescript
-export interface BbbMonitorConfig {
-  /** How often to poll session state, default 5000ms */
-  checkIntervalMs: number;
-  /** How often to check deadline, default 1000ms */
-  deadlineCheckMs: number;
-  /** Maximum session duration, default 4 hours */
-  maxSessionMs: number;
-}
-```
+Существующие `RunStatus`: `scheduled`, `resolving`, `joining`, `waiting_room`, `connected`, `reconnecting`, `leaving`, `completed`, `skipped`, `blocked`, `failed`. Новые статусы не добавляются. Существующие `CompletionReason`: `meeting_ended`, `deadline`, `manual`, `error`.
 
-### BbbSessionEvent (types.ts)
+Нормализованные наблюдения порта: `waiting_room`, `connected`, `meeting_ended`, `moderator_removed`, `network_error`. Это события адаптера, а не дополнительные статусы или причины завершения. Ожидание модератора фиксируется только по положительному BBB-сигналу, подключение — после подтверждения listen-only. `moderator_removed` приводит через очистку к терминальному `blocked`, без причины `blocked` и без технического повтора. Отсутствующая кнопка или общий disconnected-экран не доказывают удаление модератором.
 
-```typescript
-export type BbbSessionEvent =
-  | { type: 'waiting_room'; timestamp: string }
-  | { type: 'connected'; timestamp: string }
-  | { type: 'meeting_ended'; timestamp: string }
-  | { type: 'moderator_removed'; timestamp: string }
-  | { type: 'network_error'; error: string; retryAttempt: number }
-  | { type: 'deadline_reached'; timestamp: string }
-  | { type: 'manual_stop'; timestamp: string };
-```
+Перед `join`, `observe`, ожиданием и `reconnect` контроллер проверяет отмену и `leaveAt`. Ожидание и выполняемые браузерные операции должны прерываться при deadline либо отмене; на границе deadline новая операция не начинается. Deadline завершает запуск как `completed` с `deadline`. Отмена завершает его как `completed` с `manual` после закрытия браузера. Подтверждённое окончание встречи даёт `completed` с `meeting_ended`.
 
-### BbbMonitorResult (types.ts)
+Технические ошибки до deadline переводят запуск в `reconnecting`; после задержек 5, 15 и 30 секунд он переходит в `joining` для повторной попытки. Четвёртая техническая ошибка даёт `failed` с `error`. Повторы запрещены после deadline, отмены и подтверждённого удаления модератором.
 
-```typescript
-export interface BbbMonitorResult {
-  finalStatus: RunStatus;
-  completionReason: CompletionReason;
-  events: BbbSessionEvent[];
-  durationMs: number;
-}
-```
+`PlaywrightBbbSessionManager` открывает и закрывает браузер, реализует узкий порт и возвращает одно нормализованное наблюдение. Он не определяет delay, deadline или итоговый статус. Камера и микрофон отключены при каждом подключении. Очистка идемпотентна и выполняется для всех терминальных путей.
 
-### PlaywrightBbbSessionManager (bbb-session.ts)
+CLI устанавливает обработчики SIGINT/SIGTERM вокруг активного запуска. Обработчики вызывают abort; процесс не вызывает `process.exit()` до завершения `leaveSession`. Будущая ручная остановка Electron использует тот же путь.
 
-```typescript
-interface PlaywrightBbbSessionManager {
-  startSession(url: string, config: SessionConfig, occurrence?: Occurrence): Promise<BbbSession>;
-  joinAsListener(session: BbbSession): Promise<void>;
-  monitorSession(session: BbbSession): Promise<SessionState>;
-  leaveSession(session: BbbSession): Promise<void>;
-  // NEW
-  waitForModerator(session: BbbSession): Promise<void>;
-  detectMeetingEnd(session: BbbSession): Promise<boolean>;
-  detectModeratorRemoval(session: BbbSession): Promise<boolean>;
-  closeAll(): Promise<void>;
-}
-```
+## Risks / Dependencies
 
-### GracefulShutdown (graceful-shutdown.ts)
+Перед производственным распознаванием waiting-room, meeting-ended и moderator removal точный BBB-селектор или доступный текст должен быть подтверждён и записан в несекретной фикстуре с ожидаемым наблюдением. До этого соответствующие наблюдения остаются неподдерживаемыми в адаптере. Тестовые DOM не подтверждают наличие этих сигналов на реальном сервере. Разрешённый ручной smoke test отложен до доступности лекции и проверенных селекторов.
 
-```typescript
-export function createGracefulShutdown(): {
-  abortController: AbortController;
-  install(): void;
-  uninstall(): void;
-};
-```
+## Validation
 
-## State Machine
-
-```
-┌─────────────────────────────────────────────────────────────────────┐
-│                         BBB Session Lifecycle                        │
-└─────────────────────────────────────────────────────────────────────┘
-
-                              ┌──────────────┐
-                              │   starting   │
-                              └──────┬───────┘
-                                     │
-                              ┌──────▼───────┐
-      ┌───────────────────────▶│   waiting    │
-      │                        │    room      │
-      │                        └──────┬───────┘
-      │                               │ moderator starts meeting
-      │                        ┌──────▼───────┐
-      │                        │  connecting  │
-      │                        └──────┬───────┘
-      │                               │ join successful
-      │                        ┌──────▼───────┐
-      │                        │  connected   │
-      │                        └──────┬───────┘
-      │                               │
-      │    ┌──────────────────────────┼──────────────────────────┐
-      │    │                          │                          │
-      │    │ network error      deadline reached          manual stop
-      │    │                          │                          │
-      │    ▼                          ▼                          ▼
-      │ ┌──────────────┐      ┌──────────────┐          ┌──────────────┐
-      │ │  reconnecting │      │   leaving    │          │   leaving    │
-      │ │  (retry loop) │      │  (deadline)  │          │  (manual)    │
-      │ └──────┬───────┘      └──────┬───────┘          └──────┬───────┘
-      │        │                     │                          │
-      │        │ retry ok            │ meeting ends            │ leave button
-      │        │                     │                          │
-      │        ▼                     ▼                          ▼
-      │ ┌──────────────┐      ┌──────────────┐          ┌──────────────┐
-      │ │  connecting  │      │   leaving    │          │   leaving    │
-      │ └──────┬───────┘      └──────┬───────┘          └──────┬───────┘
-      │        │                     │                          │
-      │        │ all retries         │                          │
-      │        │ exhausted           │                          │
-      │        ▼                     ▼                          │
-      │ ┌──────────────┐      ┌──────────────┐          ┌──────────────┐
-      └─│    failed    │◀─────│   leaving    │◀─────────│   leaving    │
-        └──────────────┘      └──────┬───────┘          └──────┬───────┘
-                                     │                          │
-                                     │                          │
-                                     ▼                          ▼
-                               ┌──────────────┐          ┌──────────────┐
-                               │   completed  │          │   completed  │
-                               │  {deadline}  │          │   {manual}   │
-                               └──────────────┘          └──────────────┘
-```
-
-## Retry Policy
-
-```
-Attempt 0:  5 seconds delay  → retry join
-Attempt 1: 15 seconds delay  → retry join
-Attempt 2: 30 seconds delay  → retry join
-Attempt 3: FAIL              → final status: failed, reason: error
-```
-
-## BBB Events (requires fixtures)
-
-Для fixture E2E тестов необходимы подтверждённые селекторы BBB UI:
-
-| Event | BBB Selector / Condition | Source |
-|-------|-------------------------|--------|
-| waiting_room | `[data-testid="waiting-room"]` или CSS `.等待会议室` | BBB HTML fixture |
-| moderator_starts | `[data-testid="audio-connected"]` появляется | BBB HTML fixture |
-| meeting_ended | `[data-testid="meeting-ended"]` или текст "会议已结束" | BBB HTML fixture |
-| moderator_removed | `[data-testid="you-were-removed"]` или текст "您已被主持人移除" | BBB HTML fixture |
-| leave_button | `[data-testid="leave-button"]` | BBB HTML fixture |
-| listen_only_btn | `button:has-text("Listen Only")` | BBB HTML fixture |
-
-**Out of Scope:** Определение "moderator removed" через эвристику исчезновения leave_button. Требуется позитивный сигнал BBB UI.
-
-## Files to Change
-
-| File | Change |
-|------|--------|
-| `src/core/types.ts` | Add `BbbMonitorConfig`, `BbbSessionEvent`, `BbbMonitorResult` |
-| `src/core/job-runner.ts` | Load Occurrence, pass to session manager, use BbbMonitor |
-| `src/core/bbb-session.ts` | Add `waitForModerator()`, `detectMeetingEnd()`, `detectModeratorRemoval()` |
-| `src/core/bbb-monitor.ts` | NEW — monitoring loop with deadline/retry |
-| `src/core/graceful-shutdown.ts` | NEW — SIGINT/SIGTERM handlers |
-| `src/core/scheduler.ts` | Pass full Occurrence to runner |
-| `tests/core/bbb-monitor.test.ts` | NEW — unit tests |
-| `tests/core/graceful-shutdown.test.ts` | NEW — unit tests |
-| `tests/fixtures/bbb-selectors.json` | NEW (dependency: BBB fixture confirmation) |
-
-## Dependencies
-
-1. **BBB Selectors Fixtures** — Required before fixture E2E tests can be written. Create `tests/fixtures/bbb-selectors.json` after manual BBB UI inspection.
-2. **build-core-cli** — Must be applied first (existing dependency in .openspec.yaml)
+Тесты контроллера используют fake port, часы и ожидание, проверяют сохранённые переходы, непрерывное наблюдение, deadline из waiting-room/connected и во время retry, отмену, три задержки, `blocked` и идемпотентную очистку. Тесты адаптера используют локальные поддерживаемые DOM-фикстуры, включая техническую ошибку. Интеграционные тесты `JobRunner` проверяют сохранение и путь отмены CLI без реальной сети и секретов.
