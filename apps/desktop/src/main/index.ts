@@ -26,6 +26,7 @@ import { resolveAppPaths, resolveDataRoot } from './paths.js';
 import { createSafeStorageBackend } from './safe-storage-backend.js';
 import { SecretStore } from './secret-store.js';
 import { SettingsStore } from './settings-store.js';
+import { QuitController } from './quit-state.js';
 import { createTray } from './tray.js';
 import { trayStateFromView } from './tray-state.js';
 import { createMainWindow } from './window.js';
@@ -61,8 +62,7 @@ try {
 let mainWindow: BrowserWindow | undefined;
 let tray: ReturnType<typeof createTray> | undefined;
 let core: CoreProcess | undefined;
-let isQuitting = false;
-let shutdownStarted = false;
+const quit = new QuitController();
 
 async function getAppInfo(): Promise<AppInfo> {
   return {
@@ -82,7 +82,7 @@ function showMainWindow(): void {
     mainWindow = createMainWindow({
       rendererUrl: process.env['ELECTRON_RENDERER_URL'],
       hidden: false,
-      isQuitting: () => isQuitting,
+      isQuitting: () => quit.isQuitting(),
     });
   }
   mainWindow.show();
@@ -188,7 +188,6 @@ void app.whenReady().then(async () => {
         return getAppInfo();
       },
       [CHANNELS.app.quit]: (): Promise<void> => {
-        isQuitting = true;
         app.quit();
         return Promise.resolve();
       },
@@ -230,7 +229,7 @@ void app.whenReady().then(async () => {
   mainWindow = createMainWindow({
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     hidden: startHidden,
-    isQuitting: () => isQuitting,
+    isQuitting: () => quit.isQuitting(),
   });
   tray = createTray({
     tooltip: 'Online Lecture',
@@ -248,19 +247,22 @@ app.on('activate', () => {
 });
 
 app.on('before-quit', (event) => {
-  if (!shutdownStarted) {
+  const decision = quit.onBeforeQuit();
+  if (decision === 'prevent') {
+    event.preventDefault();
+    return;
+  }
+  if (decision === 'begin-shutdown') {
     // Give the worker a chance to leave a running lecture before the quit.
-    shutdownStarted = true;
     event.preventDefault();
     void (core?.shutdown(10_000) ?? Promise.resolve())
       .catch(() => undefined)
       .finally(() => {
-        isQuitting = true;
+        quit.finishShutdown();
         app.quit();
       });
     return;
   }
-  isQuitting = true;
   tray?.tray.destroy();
   core?.stop();
 });
