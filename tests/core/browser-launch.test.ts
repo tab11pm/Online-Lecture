@@ -1,11 +1,13 @@
 import { access } from 'node:fs/promises';
-import { chromium } from 'playwright';
 import { describe, expect, it, vi } from 'vitest';
 import { assertBrowserAvailable } from '../../src/core/browser-launch.js';
+import { chromiumExecutablePaths } from '../../src/core/chromium-executables.js';
 
 vi.mock('node:fs/promises', () => ({ access: vi.fn() }));
-vi.mock('playwright', () => ({
-  chromium: { executablePath: vi.fn().mockReturnValue('/missing/chrome') },
+vi.mock('../../src/core/chromium-executables.js', () => ({
+  chromiumExecutablePaths: vi
+    .fn()
+    .mockReturnValue(['/browsers/chrome', '/browsers/headless-shell']),
 }));
 
 describe('assertBrowserAvailable', () => {
@@ -17,8 +19,19 @@ describe('assertBrowserAvailable', () => {
   });
 
   it('lets Edge operations use the system browser', async () => {
-    vi.mocked(chromium.executablePath).mockClear();
+    vi.mocked(chromiumExecutablePaths).mockClear();
     await expect(assertBrowserAvailable('msedge')).resolves.toBeUndefined();
-    expect(chromium.executablePath).not.toHaveBeenCalled();
+    expect(chromiumExecutablePaths).not.toHaveBeenCalled();
+  });
+
+  it('requires both full Chromium and its headless shell', async () => {
+    vi.mocked(access).mockReset();
+    vi.mocked(access).mockImplementation(async (path) => {
+      if (path === '/browsers/headless-shell') throw new Error('ENOENT');
+    });
+    await expect(assertBrowserAvailable()).rejects.toThrow(
+      'Установите Chromium',
+    );
+    expect(access).toHaveBeenCalledWith('/browsers/headless-shell');
   });
 });

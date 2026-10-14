@@ -21,7 +21,7 @@ function setup(exists = false) {
   const spawn = vi.fn().mockReturnValue(child);
   const onChanged = vi.fn();
   const installer = new ChromiumInstaller({
-    executablePath: () => '/browsers/chrome',
+    executablePaths: () => ['/browsers/chrome', '/browsers/headless-shell'],
     fileExists,
     spawn,
     resolveCliPath: () => '/app/playwright/cli.js',
@@ -79,6 +79,31 @@ describe('ChromiumInstaller', () => {
     await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
     child.emit('close', 0);
     expect(await pending).toMatchObject({ status: 'error' });
+  });
+
+  it('retries installation if full Chromium exists but the headless shell is missing', async () => {
+    const { installer, child, fileExists, spawn } = setup();
+    fileExists.mockImplementation(
+      async (path: string) => path === '/browsers/chrome',
+    );
+    expect(await installer.getState()).toEqual({ status: 'missing' });
+    const pending = installer.install();
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
+    fileExists.mockResolvedValue(true);
+    child.emit('close', 0);
+    expect(await pending).toEqual({ status: 'available' });
+  });
+
+  it('drains subprocess stderr without publishing its contents', async () => {
+    const { installer, child, fileExists, spawn, onChanged } = setup();
+    const pending = installer.install();
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalledTimes(1));
+    expect(child.stderr.listenerCount('data')).toBeGreaterThan(0);
+    child.stderr.emit('data', Buffer.from('secret-session=abc123'));
+    fileExists.mockResolvedValue(true);
+    child.emit('close', 0);
+    await pending;
+    expect(JSON.stringify(onChanged.mock.calls)).not.toContain('abc123');
   });
 
   it('reports failures without exposing process output or URLs', async () => {

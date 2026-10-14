@@ -242,6 +242,10 @@ describe('onboarding UI', () => {
     expect(
       await screen.findByText(/внешняя настройка браузера/i),
     ).toBeVisible();
+    expect(screen.getByText(/Chromium для входа/i)).toBeVisible();
+    expect(
+      screen.getByRole('button', { name: 'Установить Chromium' }),
+    ).toBeVisible();
   });
   it('renders a start button in the welcome phase', async () => {
     fake.getState.mockResolvedValue({ phase: 'welcome' });

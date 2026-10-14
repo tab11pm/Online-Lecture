@@ -1,5 +1,5 @@
 import { access } from 'node:fs/promises';
-import { chromium } from 'playwright';
+import { chromiumExecutablePaths } from './chromium-executables.js';
 
 export async function assertBrowserAvailable(
   channel?: 'msedge',
@@ -8,7 +8,7 @@ export async function assertBrowserAvailable(
     return;
   }
   try {
-    await access(chromium.executablePath());
+    await Promise.all(chromiumExecutablePaths().map((path) => access(path)));
   } catch {
     throw new Error(
       'Chromium не установлен. Установите Chromium в приложении.',

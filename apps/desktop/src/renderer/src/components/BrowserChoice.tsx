@@ -72,7 +72,8 @@ export function BrowserChoice() {
   const selected = pendingChromium ? 'chromium' : view?.choice;
   const installing = busy || view?.install.status === 'installing';
   const needsInstall =
-    selected === 'chromium' && view?.install.status !== 'available';
+    (selected === 'chromium' || view?.externalChannel === '') &&
+    view?.install.status !== 'available';
   const installError =
     view?.install.status === 'error' ? view.install.message : undefined;
 
@@ -100,7 +101,12 @@ export function BrowserChoice() {
         </label>
       </fieldset>
       {view?.externalChannel !== undefined ? (
-        <p>Для входа в ТУСУР действует внешняя настройка браузера.</p>
+        <p>
+          Для входа в ТУСУР действует внешняя настройка браузера:
+          {view.externalChannel === ''
+            ? ' Chromium для входа.'
+            : ` ${view.externalChannel}.`}
+        </p>
       ) : null}
       {needsInstall ? (
         <button
@@ -112,6 +118,11 @@ export function BrowserChoice() {
             ? 'Повторить установку'
             : 'Установить Chromium'}
         </button>
+      ) : null}
+      {needsInstall && import.meta.env.DEV ? (
+        <p>
+          Для разработки: <code>npx playwright install chromium</code>
+        </p>
       ) : null}
       {installing && needsInstall ? (
         <p role="status">Установка Chromium…</p>

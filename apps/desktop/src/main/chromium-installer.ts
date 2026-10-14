@@ -1,7 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process';
 import { access } from 'node:fs/promises';
 import { createRequire } from 'node:module';
-import { chromium } from 'playwright';
+import { chromiumExecutablePaths } from '@core/core/chromium-executables.js';
 import type { BrowserInstallState } from '../shared/browser-choice.js';
 
 const require = createRequire(import.meta.url);
@@ -22,7 +22,7 @@ async function defaultFileExists(path: string): Promise<boolean> {
 }
 
 export interface ChromiumInstallerOptions {
-  executablePath?: () => string;
+  executablePaths?: () => string[];
   fileExists?: (path: string) => Promise<boolean>;
   spawn?: typeof spawn;
   resolveCliPath?: () => string;
@@ -37,8 +37,8 @@ export class ChromiumInstaller {
 
   constructor(private readonly options: ChromiumInstallerOptions = {}) {}
 
-  private get executablePath(): () => string {
-    return this.options.executablePath ?? (() => chromium.executablePath());
+  private get executablePaths(): () => string[] {
+    return this.options.executablePaths ?? chromiumExecutablePaths;
   }
 
   private get fileExists(): (path: string) => Promise<boolean> {
@@ -57,11 +57,23 @@ export class ChromiumInstaller {
     return state;
   }
 
+  private async isAvailable(): Promise<boolean> {
+    try {
+      const paths = this.executablePaths();
+      return (
+        paths.length > 0 &&
+        (await Promise.all(paths.map(this.fileExists))).every(Boolean)
+      );
+    } catch {
+      return false;
+    }
+  }
+
   async getState(): Promise<BrowserInstallState> {
     if (this.inFlight || this.state.status === 'error') {
       return this.state;
     }
-    const available = await this.fileExists(this.executablePath());
+    const available = await this.isAvailable();
     return this.publish({ status: available ? 'available' : 'missing' });
   }
 
@@ -76,7 +88,7 @@ export class ChromiumInstaller {
   }
 
   private async runInstall(): Promise<BrowserInstallState> {
-    if (await this.fileExists(this.executablePath())) {
+    if (await this.isAvailable()) {
       return this.publish({ status: 'available' });
     }
     this.publish({ status: 'installing' });
@@ -102,11 +114,14 @@ export class ChromiumInstaller {
       child.stdout?.on('data', () => {
         this.publish({ status: 'installing', message: 'Загрузка Chromium…' });
       });
+      child.stderr?.on('data', () => {
+        this.publish({ status: 'installing', message: 'Загрузка Chromium…' });
+      });
       const exitCode = await new Promise<number | null>((resolve, reject) => {
         child.once('error', reject);
         child.once('close', resolve);
       });
-      if (exitCode !== 0 || !(await this.fileExists(this.executablePath()))) {
+      if (exitCode !== 0 || !(await this.isAvailable())) {
         return this.publish({
           status: 'error',
           message: 'Не удалось установить Chromium. Повторите попытку.',

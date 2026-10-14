@@ -10,7 +10,7 @@
     "vite": "^7.3.6"
   },
   "scripts": {
-    "build": "tsc --noEmit && npm run typecheck -w @online-lecture/desktop",
+    "build": "node scripts/check-playwright-versions.mjs && tsc --noEmit && npm run typecheck -w @online-lecture/desktop",
     "cli": "tsx src/cli/index.ts",
     "dev": "tsx watch src/cli/index.ts",
     "format": "prettier --write .",

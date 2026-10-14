@@ -116,15 +116,14 @@ void app.whenReady().then(async () => {
   );
   const appCore = core;
   appCore.start();
-  let browserController: BrowserController | undefined;
   const installer = new ChromiumInstaller({
     onChanged: () => {
       void browserController
-        ?.getBrowser()
+        .getBrowser()
         .then((view) => broadcast(CHANNELS.app.browserChanged, view));
     },
   });
-  browserController = new BrowserController({
+  const browserController = new BrowserController({
     settings: settingsStore,
     installer,
     core: appCore,
