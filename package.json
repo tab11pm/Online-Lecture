@@ -24,6 +24,7 @@
     "commander": "^14.0.2",
     "luxon": "^3.7.2",
     "playwright": "^1.52.0",
+    "sdo_mcp": "github:tab11pm/sdo-mcp#v1.2.0",
     "yaml": "^2.8.2",
     "zod": "^4.1.12"
   },
