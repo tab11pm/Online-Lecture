@@ -66,6 +66,8 @@ npm run typecheck -w @online-lecture/desktop  # tsc --noEmit (node + web)
 npm test -w @online-lecture/desktop           # vitest без GUI
 ```
 
+**SQLite под Electron.** Процесс ядра открывает базу через `better-sqlite3`, а это нативный модуль: сборка в `node_modules` сделана под системный Node (её используют тесты и CLI) и в Electron не загружается. Поэтому `npm run build:native -w @online-lecture/desktop` собирает отдельную копию под текущую версию Electron в `apps/desktop/native/better_sqlite3.node` (в git не попадает). `dev` и `build` вызывают его сами и пропускают, если сборка актуальна. На Windows для первой сборки нужны Visual Studio Build Tools (рабочая нагрузка «Разработка классических приложений на C++») и Python. Main передаёт путь ядру через `ONLINE_LECTURE_SQLITE_BINDING`. Если файла нет, приложение показывает «Модуль базы данных для приложения не собран…», а саму базу не трогает. В упаковке (фаза 4) этот файл нужно положить в ресурсы приложения.
+
 E2E (`apps/desktop/tests/e2e/onboarding.test.ts`) — vitest + Playwright `_electron`, поднимает `out/main/index.js` с `ONLINE_LECTURE_FAKE_SESSION=1`, проходит приветствие → форму → «Сессия активна». По умолчанию пропускается; включается `CI_ELECTRON_E2E=1`.
 
 Пути данных (Windows): `%LOCALAPPDATA%/OnlineLecture/` → `data/lectures.db`, `auth.json`, `credentials.enc`, `settings.json`, `logs/`. Ничего из этого в git не попадает.

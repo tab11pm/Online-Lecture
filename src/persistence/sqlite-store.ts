@@ -21,14 +21,32 @@ const initialSchema = `
   );
 `;
 
+export interface SqliteStoreOptions {
+  /** Path to a better-sqlite3 binary built for the current runtime (Electron). */
+  nativeBinding?: string;
+}
+
+function isSqliteError(error: unknown): boolean {
+  const code = (error as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && code.startsWith('SQLITE_');
+}
+
 export class SqliteStore {
   private database: Database.Database | undefined;
 
-  constructor(private readonly path: string) {}
+  constructor(
+    private readonly path: string,
+    private readonly options: SqliteStoreOptions = {},
+  ) {}
 
   async open(): Promise<void> {
     await mkdir(dirname(this.path), { recursive: true });
-    this.database = new Database(this.path);
+    this.database = new Database(
+      this.path,
+      this.options.nativeBinding === undefined
+        ? {}
+        : { nativeBinding: this.options.nativeBinding },
+    );
     this.database.exec(initialSchema);
     this.database.pragma('user_version = 1');
   }
@@ -40,8 +58,11 @@ export class SqliteStore {
     try {
       await this.open();
       return { status: 'new', diagnosticPath: '' };
-    } catch {
+    } catch (error) {
       this.close();
+      // Only a database SQLite itself rejects is quarantined; a module that
+      // fails to load says nothing about the file and must leave it untouched.
+      if (!isSqliteError(error)) throw error;
       const diagnosticPath = `${this.path}.corrupt-${Date.now()}`;
       await rename(this.path, diagnosticPath);
       const backupDirectory = join(dirname(this.path), 'backups');

@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import type { RunResult } from '@core/core/job-runner.js';
 import { buildAgenda, type AgendaEntry } from '@core/core/lecture-agenda.js';
 import { setOccurrenceSuppressed } from '@core/core/occurrence-suppression.js';
@@ -42,6 +43,8 @@ export interface LectureAdapters {
 
 export interface LectureServiceDependencies {
   databasePath: string;
+  /** better-sqlite3 binary built for Electron; required inside the app. */
+  sqliteBinding?: string;
   adapters: LectureAdapters;
   now(): Date;
   onView(view: LecturesView): void;
@@ -50,6 +53,9 @@ export interface LectureServiceDependencies {
 }
 
 const AGENDA_DAYS = 14;
+
+export const MISSING_SQLITE_BUILD =
+  'Модуль базы данных для приложения не собран. Выполните: npm run build:native -w @online-lecture/desktop';
 
 /** Reports every run write so live statuses (joining, connected, ...) reach the view. */
 class NotifyingRunRepository extends SqliteRunRepository {
@@ -98,7 +104,14 @@ export class LectureService {
 
   async open(): Promise<void> {
     if (this.repos) return;
-    const store = new SqliteStore(this.deps.databasePath);
+    const { sqliteBinding } = this.deps;
+    if (sqliteBinding !== undefined && !existsSync(sqliteBinding)) {
+      throw new Error(MISSING_SQLITE_BUILD);
+    }
+    const store = new SqliteStore(
+      this.deps.databasePath,
+      sqliteBinding === undefined ? {} : { nativeBinding: sqliteBinding },
+    );
     await store.openWithRecovery();
     const jobs = new SqliteJobRepository(store);
     const runs = new NotifyingRunRepository(store, () => void this.publish());
