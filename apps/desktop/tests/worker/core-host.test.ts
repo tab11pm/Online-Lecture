@@ -7,6 +7,11 @@ import type { HostEvent, MainCommand } from '../../src/shared/host-protocol.js';
 import type { AppPaths } from '../../src/shared/paths.js';
 import type { LoginOutcome } from '../../src/shared/onboarding.js';
 import type { SessionProvider } from '../../src/worker/session-provider.js';
+import type {
+  LectureControl,
+  LectureHostEvents,
+} from '../../src/worker/core-host.js';
+import type { LecturesView } from '../../src/shared/lectures.js';
 
 function fakeTransport() {
   const posted: HostEvent[] = [];
@@ -59,6 +64,35 @@ function throwingMachine(error: Error): OnboardingMachine {
 }
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
+
+const lecturesView: LecturesView = {
+  agenda: [],
+  import: { status: 'idle' },
+};
+
+function fakeLectures() {
+  let events: LectureHostEvents | undefined;
+  const control = {
+    open: vi.fn(async () => undefined),
+    activate: vi.fn(),
+    deactivate: vi.fn(),
+    getView: vi.fn(() => lecturesView),
+    importNow: vi.fn(async () => undefined),
+    stopCurrent: vi.fn(async () => undefined),
+    setSkipped: vi.fn(async () => undefined),
+    setBrowser: vi.fn(),
+    resumed: vi.fn(),
+    shutdown: vi.fn(async () => undefined),
+  } satisfies LectureControl;
+  return {
+    control,
+    events: () => events!,
+    factory: (hostEvents: LectureHostEvents): LectureControl => {
+      events = hostEvents;
+      return control;
+    },
+  };
+}
 
 describe('CoreHost', () => {
   it('applies browser changes to future provider operations', () => {
@@ -245,5 +279,189 @@ describe('CoreHost', () => {
           'Компонент входа SDO MCP не запустился. Подробности в журнале: /d/logs/core.log.',
       },
     });
+  });
+
+  it('activates lectures after a successful login', async () => {
+    const lectures = fakeLectures();
+    const { transport, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine({ checkSession: vi.fn().mockResolvedValue(false) }),
+      lectures: lectures.factory,
+    }).start();
+    await flush();
+    expect(lectures.control.open).toHaveBeenCalledTimes(1);
+    expect(lectures.control.activate).not.toHaveBeenCalled();
+
+    send({
+      type: 'onboarding.login',
+      input: { username: 'student', password: 'secret' },
+    });
+    await flush();
+    expect(lectures.control.activate).toHaveBeenCalledWith('login');
+
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+    expect(lectures.control.deactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it('activates lectures on startup when the stored session is valid', async () => {
+    const lectures = fakeLectures();
+    const { transport, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+    expect(lectures.control.activate).toHaveBeenCalledWith('startup');
+  });
+
+  it.each([
+    [
+      'Lecture database is not open',
+      'База лекций недоступна. Перезапустите приложение.',
+    ],
+    ['Lecture not found', 'Пара не найдена. Обновите расписание.'],
+    ['Occurrence not found', 'Пара не найдена. Обновите расписание.'],
+  ])('translates the worker error "%s" into Russian', async (raw, russian) => {
+    const lectures = fakeLectures();
+    lectures.control.setSkipped.mockRejectedValueOnce(new Error(raw));
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    await flush();
+
+    send({
+      type: 'lectures.setSkipped',
+      jobId: 'tt:1',
+      occurrenceId: 'tt:1:x',
+      skipped: true,
+    });
+    await flush();
+
+    expect(posted).toContainEqual({ type: 'host.error', message: russian });
+  });
+
+  it('forwards lecture commands', async () => {
+    const lectures = fakeLectures();
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    await flush();
+
+    send({ type: 'lectures.getView' });
+    send({ type: 'lectures.import' });
+    send({ type: 'lectures.stopCurrent' });
+    send({
+      type: 'lectures.setSkipped',
+      jobId: 'tt:1',
+      occurrenceId: 'tt:1:x',
+      skipped: true,
+    });
+    send({ type: 'system.resumed' });
+    send({ type: 'browser.setChoice', choice: 'edge' });
+    send({ type: 'lectures.setShowWindow', show: false });
+    send({ type: 'browser.setChoice', choice: 'chromium' });
+    await flush();
+
+    expect(posted).toContainEqual({
+      type: 'lectures.changed',
+      view: lecturesView,
+    });
+    expect(lectures.control.importNow).toHaveBeenCalledTimes(1);
+    expect(lectures.control.stopCurrent).toHaveBeenCalledTimes(1);
+    expect(lectures.control.setSkipped).toHaveBeenCalledWith(
+      'tt:1',
+      'tt:1:x',
+      true,
+    );
+    expect(lectures.control.resumed).toHaveBeenCalledTimes(1);
+    expect(lectures.control.setBrowser.mock.calls).toEqual([
+      [{ channel: 'msedge', headless: false }],
+      [{ channel: 'msedge', headless: true }],
+      [{ headless: true }],
+    ]);
+
+    lectures.events().onView(lecturesView);
+    expect(posted.filter((e) => e.type === 'lectures.changed')).toHaveLength(2);
+  });
+
+  it('posts a redacted host.error when a lecture command fails', async () => {
+    const lectures = fakeLectures();
+    lectures.control.setSkipped.mockRejectedValueOnce(
+      new Error('Occurrence not found https://sdo.tusur.ru/x?id=1'),
+    );
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    send({
+      type: 'lectures.setSkipped',
+      jobId: 'a',
+      occurrenceId: 'b',
+      skipped: true,
+    });
+    await flush();
+    const error = posted.find((event) => event.type === 'host.error');
+    expect(error).toBeDefined();
+    expect(JSON.stringify(error)).not.toContain('sdo.tusur.ru');
+  });
+
+  it('requires login when lectures report auth_required', async () => {
+    const lectures = fakeLectures();
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+
+    lectures.events().onAuthRequired();
+    await flush();
+
+    expect(posted).toContainEqual({
+      type: 'onboarding.changed',
+      state: {
+        phase: 'credentials',
+        error: 'Сессия ТУСУР истекла. Войдите снова.',
+      },
+    });
+    expect(lectures.control.deactivate).toHaveBeenCalledTimes(1);
+  });
+
+  it('replies shutdownComplete after shutdown', async () => {
+    const lectures = fakeLectures();
+    let release!: () => void;
+    lectures.control.shutdown.mockImplementationOnce(
+      () =>
+        new Promise<undefined>(
+          (resolve) => (release = () => resolve(undefined)),
+        ),
+    );
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    send({ type: 'app.shutdown' });
+    await flush();
+    expect(lectures.control.shutdown).toHaveBeenCalledWith(10_000);
+    expect(posted).not.toContainEqual({ type: 'host.shutdownComplete' });
+    release();
+    await flush();
+    expect(posted).toContainEqual({ type: 'host.shutdownComplete' });
   });
 });

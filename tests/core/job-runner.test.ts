@@ -50,14 +50,12 @@ describe('JobRunner lifecycle', () => {
       },
     };
     manager = {
-      startSession: vi
-        .fn()
-        .mockResolvedValue({
-          page: { reload: vi.fn().mockResolvedValue(undefined) },
-          status: 'started',
-          url: 'https://bbb2.tusur.ru/test',
-          startedAt: new Date(),
-        }),
+      startSession: vi.fn().mockResolvedValue({
+        page: { reload: vi.fn().mockResolvedValue(undefined) },
+        status: 'started',
+        url: 'https://bbb2.tusur.ru/test',
+        startedAt: new Date(),
+      }),
       joinAsListener: vi.fn().mockResolvedValue(undefined),
       observe: vi.fn().mockResolvedValue({ kind: 'meeting_ended' }),
       leaveSession: vi.fn().mockResolvedValue(undefined),
@@ -435,6 +433,27 @@ describe('JobRunner lifecycle', () => {
     expect(result.status).toBe('resolving');
     expect(stored?.status).toBe('resolving');
     expect(manager.startSession).not.toHaveBeenCalled();
+  });
+
+  it('flags authRequired when resolution needs a login', async () => {
+    job.target = { type: 'search', courseName: 'Physics' };
+    runner = new JobRunner(
+      {
+        resolveOnlineLecture: vi
+          .fn()
+          .mockResolvedValue({ status: 'auth_required' }),
+        close: vi.fn(),
+      } as unknown as ConstructorParameters<typeof JobRunner>[0],
+      manager,
+      {
+        getById: async () => job,
+        listEnabled: async () => [job],
+        save: async () => undefined,
+      },
+      repo,
+    );
+    const result = await runner.runJob('job-1', occurrenceId);
+    expect(result).toMatchObject({ status: 'failed', authRequired: true });
   });
 
   it.each([

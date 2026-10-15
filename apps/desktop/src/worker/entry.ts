@@ -4,8 +4,10 @@ import { createAppPaths } from '../shared/paths.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import { CoreHost, type HostTransport } from './core-host.js';
 import { createCoreLog } from './core-log.js';
+import { createLectureAdapters } from './lecture-adapters.js';
+import { createFakeLectureAdapters } from './lecture-adapters.fake.js';
+import { LectureService, type LectureAdapters } from './lecture-service.js';
 import { SdoMcpSessionProvider } from './sdo-mcp-session-provider.js';
-import type { SessionProvider } from './session-provider.js';
 import { FakeSessionProvider } from './session-provider.fake.js';
 
 interface ParentPortMessageEvent {
@@ -49,8 +51,10 @@ const transport: HostTransport = {
 const paths = createAppPaths(userDataDir);
 const log = createCoreLog(join(paths.logs, 'core.log'));
 
-function createProvider(): SessionProvider {
-  if (process.env.ONLINE_LECTURE_FAKE_SESSION === '1') {
+const fakeSession = process.env.ONLINE_LECTURE_FAKE_SESSION === '1';
+
+function createProvider(): SdoMcpSessionProvider | FakeSessionProvider {
+  if (fakeSession) {
     return new FakeSessionProvider();
   }
   const config = loadMcpConfig();
@@ -62,8 +66,31 @@ function createProvider(): SessionProvider {
   return new SdoMcpSessionProvider(config, externalChannel);
 }
 
+const provider = createProvider();
+
+function createAdapters(): LectureAdapters {
+  if (provider instanceof SdoMcpSessionProvider) {
+    return createLectureAdapters({
+      authStatePath: paths.authState,
+      createMcpClient: () => provider.createClient(paths.authState),
+    });
+  }
+  return createFakeLectureAdapters(() => new Date());
+}
+
+const adapters = createAdapters();
+
 new CoreHost(transport, {
   paths,
-  provider: createProvider(),
+  provider,
   log,
+  lectures: (events) =>
+    new LectureService({
+      databasePath: paths.database,
+      adapters,
+      now: () => new Date(),
+      onView: events.onView,
+      onAuthRequired: events.onAuthRequired,
+      log,
+    }),
 }).start();

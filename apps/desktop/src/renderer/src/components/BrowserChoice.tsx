@@ -11,7 +11,21 @@ function message(error: unknown): string {
     : 'Не удалось изменить браузер.';
 }
 
-export function BrowserChoice() {
+/** The chosen browser needs Chromium, and Chromium is not available yet. */
+export function chromiumMissing(view: BrowserView | undefined): boolean {
+  return (
+    view !== undefined &&
+    (view.choice === 'chromium' || view.externalChannel === '') &&
+    view.install.status !== 'available'
+  );
+}
+
+export interface BrowserChoiceProps {
+  /** The main screen shows the install prompt itself while Chromium is missing. */
+  bannerOwnsInstall?: boolean;
+}
+
+export function BrowserChoice({ bannerOwnsInstall }: BrowserChoiceProps) {
   const [view, setView] = useState<BrowserView>();
   const [pendingChromium, setPendingChromium] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -73,7 +87,8 @@ export function BrowserChoice() {
   const installing = busy || view?.install.status === 'installing';
   const needsInstall =
     (selected === 'chromium' || view?.externalChannel === '') &&
-    view?.install.status !== 'available';
+    view?.install.status !== 'available' &&
+    !(bannerOwnsInstall && chromiumMissing(view));
   const installError =
     view?.install.status === 'error' ? view.install.message : undefined;
 

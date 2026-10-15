@@ -1,4 +1,5 @@
 import type { LoginOutcome, OnboardingState } from './onboarding.js';
+import type { LecturesView } from './lectures.js';
 import type { BrowserChoice, BrowserView } from './browser-choice.js';
 
 export interface AppInfo {
@@ -36,6 +37,15 @@ export const CHANNELS = {
     browserChanged: 'app:browserChanged',
     setAutostart: 'app:setAutostart',
     quit: 'app:quit',
+    getShowLectureWindow: 'app:getShowLectureWindow',
+    setShowLectureWindow: 'app:setShowLectureWindow',
+  },
+  lectures: {
+    getView: 'lectures:getView',
+    importNow: 'lectures:importNow',
+    stopCurrent: 'lectures:stopCurrent',
+    setSkipped: 'lectures:setSkipped',
+    changed: 'lectures:changed',
   },
   core: {
     getStatus: 'core:getStatus',
@@ -62,6 +72,19 @@ export interface DesktopApi {
     onBrowserChanged(listener: (view: BrowserView) => void): () => void;
     setAutostart(enabled: boolean): Promise<AppInfo>;
     quit(): Promise<void>;
+    getShowLectureWindow(): Promise<boolean>;
+    setShowLectureWindow(show: boolean): Promise<boolean>;
+  };
+  lectures: {
+    getView(): Promise<LecturesView>;
+    importNow(): Promise<void>;
+    stopCurrent(): Promise<void>;
+    setSkipped(
+      jobId: string,
+      occurrenceId: string,
+      skipped: boolean,
+    ): Promise<void>;
+    onChanged(listener: (view: LecturesView) => void): () => void;
   };
   core: {
     getStatus(): Promise<CoreStatus>;

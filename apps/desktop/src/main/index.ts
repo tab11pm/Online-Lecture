@@ -1,6 +1,12 @@
 import { mkdirSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { app, BrowserWindow, ipcMain, utilityProcess } from 'electron';
+import {
+  app,
+  BrowserWindow,
+  ipcMain,
+  powerMonitor,
+  utilityProcess,
+} from 'electron';
 import { CHANNELS } from '../shared/ipc-contract.js';
 import type { AppInfo, LoginInput } from '../shared/ipc-contract.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
@@ -20,7 +26,9 @@ import { resolveAppPaths, resolveDataRoot } from './paths.js';
 import { createSafeStorageBackend } from './safe-storage-backend.js';
 import { SecretStore } from './secret-store.js';
 import { SettingsStore } from './settings-store.js';
+import { QuitController } from './quit-state.js';
 import { createTray } from './tray.js';
+import { trayStateFromView } from './tray-state.js';
 import { createMainWindow } from './window.js';
 
 // Load the SDO MCP configuration (SDO_MCP_SERVER_PATH, SDO_MCP_SERVER_CWD, …)
@@ -54,7 +62,7 @@ try {
 let mainWindow: BrowserWindow | undefined;
 let tray: ReturnType<typeof createTray> | undefined;
 let core: CoreProcess | undefined;
-let isQuitting = false;
+const quit = new QuitController();
 
 async function getAppInfo(): Promise<AppInfo> {
   return {
@@ -74,7 +82,7 @@ function showMainWindow(): void {
     mainWindow = createMainWindow({
       rendererUrl: process.env['ELECTRON_RENDERER_URL'],
       hidden: false,
-      isQuitting: () => isQuitting,
+      isQuitting: () => quit.isQuitting(),
     });
   }
   mainWindow.show();
@@ -103,6 +111,7 @@ void app.whenReady().then(async () => {
       entryPath: fileURLToPath(new URL('./entry.js', import.meta.url)),
       userDataDir: paths.root,
       initialBrowserChoice,
+      initialShowLectureWindow: settings.showLectureWindow ?? true,
       externalChannel: externalBrowserChannel,
       fork: (entryPath, args) => utilityProcess.fork(entryPath, args),
     },
@@ -112,10 +121,15 @@ void app.whenReady().then(async () => {
         broadcast(CHANNELS.core.statusChanged, status),
       onNotification: (notification) =>
         broadcast(CHANNELS.core.notification, notification),
+      onLecturesChanged: (view) => {
+        broadcast(CHANNELS.lectures.changed, view);
+        tray?.update(trayStateFromView(view));
+      },
     },
   );
   const appCore = core;
   appCore.start();
+  powerMonitor.on('resume', () => appCore.systemResumed());
   const installer = new ChromiumInstaller({
     onChanged: () => {
       void browserController
@@ -174,8 +188,36 @@ void app.whenReady().then(async () => {
         return getAppInfo();
       },
       [CHANNELS.app.quit]: (): Promise<void> => {
-        isQuitting = true;
         app.quit();
+        return Promise.resolve();
+      },
+      [CHANNELS.app.getShowLectureWindow]: async (): Promise<boolean> =>
+        (await settingsStore.read()).showLectureWindow ?? true,
+      [CHANNELS.app.setShowLectureWindow]: async (
+        show: boolean,
+      ): Promise<boolean> => {
+        const next = await settingsStore.update({
+          showLectureWindow: show === true,
+        });
+        const value = next.showLectureWindow ?? true;
+        appCore.setShowLectureWindow(value);
+        return value;
+      },
+      [CHANNELS.lectures.getView]: () => appCore.getLecturesView(),
+      [CHANNELS.lectures.importNow]: (): Promise<void> => {
+        appCore.importLectures();
+        return Promise.resolve();
+      },
+      [CHANNELS.lectures.stopCurrent]: (): Promise<void> => {
+        appCore.stopCurrentLecture();
+        return Promise.resolve();
+      },
+      [CHANNELS.lectures.setSkipped]: (
+        jobId: string,
+        occurrenceId: string,
+        skipped: boolean,
+      ): Promise<void> => {
+        appCore.setLectureSkipped(jobId, occurrenceId, skipped === true);
         return Promise.resolve();
       },
       [CHANNELS.core.getStatus]: () => appCore.getStatus(),
@@ -187,25 +229,41 @@ void app.whenReady().then(async () => {
   mainWindow = createMainWindow({
     rendererUrl: process.env['ELECTRON_RENDERER_URL'],
     hidden: startHidden,
-    isQuitting: () => isQuitting,
+    isQuitting: () => quit.isQuitting(),
   });
   tray = createTray({
     tooltip: 'Online Lecture',
     onOpen: showMainWindow,
+    onStop: () => appCore.stopCurrentLecture(),
     onQuit: () => {
-      isQuitting = true;
       app.quit();
     },
   });
+  tray.update(trayStateFromView(appCore.getLecturesView()));
 });
 
 app.on('activate', () => {
   showMainWindow();
 });
 
-app.on('before-quit', () => {
-  isQuitting = true;
-  tray?.destroy();
+app.on('before-quit', (event) => {
+  const decision = quit.onBeforeQuit();
+  if (decision === 'prevent') {
+    event.preventDefault();
+    return;
+  }
+  if (decision === 'begin-shutdown') {
+    // Give the worker a chance to leave a running lecture before the quit.
+    event.preventDefault();
+    void (core?.shutdown(10_000) ?? Promise.resolve())
+      .catch(() => undefined)
+      .finally(() => {
+        quit.finishShutdown();
+        app.quit();
+      });
+    return;
+  }
+  tray?.tray.destroy();
   core?.stop();
 });
 

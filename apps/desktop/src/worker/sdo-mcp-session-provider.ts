@@ -64,6 +64,11 @@ export class SdoMcpSessionProvider implements SessionProvider {
     });
   }
 
+  /** A client for lecture work: same environment as login, no credentials. */
+  createClient(authStatePath: string): SdoMcpClient {
+    return this.clientFor({ authStatePath });
+  }
+
   async loginWithCredentials({
     username,
     password,

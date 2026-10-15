@@ -1,9 +1,15 @@
 import { isSdoMcpUnavailableError } from '@core/core/mcp-errors.js';
 import { redactSensitiveText } from '@core/core/redaction.js';
+import { browserChannel } from '../shared/browser-choice.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
+import type {
+  LectureBrowserOptions,
+  LecturesView,
+} from '../shared/lectures.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { AppPaths } from '../shared/paths.js';
 import type { CoreLog } from './core-log.js';
+import type { LectureService } from './lecture-service.js';
 import { OnboardingMachine } from './onboarding-machine.js';
 import { SdoMcpSessionProvider } from './sdo-mcp-session-provider.js';
 import type { SessionProvider } from './session-provider.js';
@@ -13,12 +19,36 @@ export interface HostTransport {
   onMessage(handler: (command: MainCommand) => void): void;
 }
 
+export type LectureControl = Pick<
+  LectureService,
+  | 'open'
+  | 'activate'
+  | 'deactivate'
+  | 'getView'
+  | 'importNow'
+  | 'stopCurrent'
+  | 'setSkipped'
+  | 'setBrowser'
+  | 'resumed'
+  | 'shutdown'
+>;
+
+export interface LectureHostEvents {
+  onView(view: LecturesView): void;
+  onAuthRequired(): void;
+}
+
 export interface CoreHostDependencies {
   paths: AppPaths;
   machine?: OnboardingMachine;
   provider?: SessionProvider;
   log?: CoreLog;
+  /** Builds the lecture service with callbacks that reach this host. */
+  lectures?(events: LectureHostEvents): LectureControl;
 }
+
+const SESSION_EXPIRED_MESSAGE = 'Сессия ТУСУР истекла. Войдите снова.';
+const SHUTDOWN_TIMEOUT_MS = 10_000;
 
 export class CoreHost {
   private readonly paths: AppPaths;
@@ -28,6 +58,12 @@ export class CoreHost {
   private capturedOutcome: LoginOutcome | undefined;
   private unsubscribe: (() => void) | undefined;
   private started = false;
+  private readonly lectures: LectureControl | undefined;
+  /** Resolves to whether the lecture database opened; activation waits for it. */
+  private lecturesReady: Promise<boolean> = Promise.resolve(false);
+  private sessionReady = false;
+  private loginInFlight = false;
+  private browser: LectureBrowserOptions = { headless: false };
 
   constructor(
     private readonly transport: HostTransport,
@@ -37,6 +73,10 @@ export class CoreHost {
     this.log = deps.log;
     this.provider = deps.provider;
     this.machine = deps.machine ?? this.buildMachine(deps.provider);
+    this.lectures = deps.lectures?.({
+      onView: (view) => this.transport.post({ type: 'lectures.changed', view }),
+      onAuthRequired: () => this.machine.requireLogin(SESSION_EXPIRED_MESSAGE),
+    });
   }
 
   start(): void {
@@ -44,9 +84,11 @@ export class CoreHost {
       return;
     }
     this.started = true;
-    this.unsubscribe = this.machine.onChange((state) =>
-      this.postChanged(state),
-    );
+    this.unsubscribe = this.machine.onChange((state) => {
+      this.followSession(state);
+      this.postChanged(state);
+    });
+    this.lecturesReady = this.openLectures();
     this.transport.onMessage((command) => {
       void this.handle(command);
     });
@@ -60,6 +102,41 @@ export class CoreHost {
     this.started = false;
     this.unsubscribe?.();
     this.unsubscribe = undefined;
+  }
+
+  private async openLectures(): Promise<boolean> {
+    if (!this.lectures) return false;
+    try {
+      await this.lectures.open();
+      return true;
+    } catch (error) {
+      this.log?.error(
+        `lectures open failed: ${redactSensitiveText(errorMessage(error))}`,
+      );
+      this.transport.post({
+        type: 'host.error',
+        message: localizeHostError(redactSensitiveText(errorMessage(error))),
+      });
+      return false;
+    }
+  }
+
+  /** Lectures run only while the session is ready. */
+  private followSession(state: OnboardingState): void {
+    const ready = state.phase === 'session_ready';
+    if (ready === this.sessionReady) return;
+    this.sessionReady = ready;
+    const trigger = this.loginInFlight ? 'login' : 'startup';
+    void this.lecturesReady.then((opened) => {
+      if (!opened || !this.lectures) return;
+      if (ready) this.lectures.activate(trigger);
+      else this.lectures.deactivate();
+    });
+  }
+
+  private setBrowser(next: LectureBrowserOptions): void {
+    this.browser = next;
+    this.lectures?.setBrowser(next);
   }
 
   private buildMachine(provider?: SessionProvider): OnboardingMachine {
@@ -103,17 +180,66 @@ export class CoreHost {
     }
     try {
       switch (command.type) {
-        case 'browser.setChoice':
+        case 'browser.setChoice': {
           this.provider?.setBrowserChoice?.(command.choice);
+          const channel = browserChannel(command.choice);
+          this.setBrowser({
+            ...(channel ? { channel } : {}),
+            headless: this.browser.headless,
+          });
+          return;
+        }
+        case 'lectures.setShowWindow':
+          this.setBrowser({
+            ...(this.browser.channel ? { channel: this.browser.channel } : {}),
+            headless: !command.show,
+          });
+          return;
+        case 'lectures.getView':
+          if (this.lectures) {
+            this.transport.post({
+              type: 'lectures.changed',
+              view: this.lectures.getView(),
+            });
+          }
+          return;
+        case 'lectures.import':
+          await this.lectures?.importNow();
+          return;
+        case 'lectures.stopCurrent':
+          await this.lectures?.stopCurrent();
+          return;
+        case 'lectures.setSkipped':
+          await this.lectures?.setSkipped(
+            command.jobId,
+            command.occurrenceId,
+            command.skipped,
+          );
+          return;
+        case 'system.resumed':
+          this.lectures?.resumed();
+          return;
+        case 'app.shutdown':
+          try {
+            await this.lectures?.shutdown(SHUTDOWN_TIMEOUT_MS);
+          } finally {
+            this.transport.post({ type: 'host.shutdownComplete' });
+          }
           return;
         case 'onboarding.getState':
           this.postChanged(this.machine.getState());
           return;
         case 'onboarding.login':
-          this.postOutcome(await this.machine.submitCredentials(command.input));
+          this.postOutcome(
+            await this.whileLoggingIn(() =>
+              this.machine.submitCredentials(command.input),
+            ),
+          );
           return;
         case 'onboarding.openManualSso':
-          this.postOutcome(await this.machine.openManualSso());
+          this.postOutcome(
+            await this.whileLoggingIn(() => this.machine.openManualSso()),
+          );
           return;
         case 'onboarding.checkSession':
           this.postChanged(await this.machine.checkSession());
@@ -124,8 +250,19 @@ export class CoreHost {
     } catch (error) {
       this.transport.post({
         type: 'host.error',
-        message: redactSensitiveText(errorMessage(error)),
+        message: localizeHostError(redactSensitiveText(errorMessage(error))),
       });
+    }
+  }
+
+  private async whileLoggingIn(
+    action: () => Promise<OnboardingState>,
+  ): Promise<OnboardingState> {
+    this.loginInFlight = true;
+    try {
+      return await action();
+    } finally {
+      this.loginInFlight = false;
     }
   }
 
@@ -162,4 +299,21 @@ function errorMessage(error: unknown): string {
     return error.message;
   }
   return typeof error === 'string' ? error : 'Не удалось выполнить операцию.';
+}
+
+const HOST_ERROR_TRANSLATIONS: ReadonlyArray<readonly [string, string]> = [
+  [
+    'Lecture database is not open',
+    'База лекций недоступна. Перезапустите приложение.',
+  ],
+  ['Lecture not found', 'Пара не найдена. Обновите расписание.'],
+  ['Occurrence not found', 'Пара не найдена. Обновите расписание.'],
+];
+
+/** Translates the worker's known internal English errors for the UI. */
+function localizeHostError(message: string): string {
+  for (const [english, russian] of HOST_ERROR_TRANSLATIONS) {
+    if (message === english) return russian;
+  }
+  return message;
 }

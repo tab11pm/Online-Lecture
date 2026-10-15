@@ -77,6 +77,17 @@ const fake = vi.hoisted(() => {
         Promise.resolve({ version: '0.0.0', autostart: false }),
       ),
       quit: noop,
+      getShowLectureWindow: vi.fn(() => Promise.resolve(false)),
+      setShowLectureWindow: vi.fn((show: boolean) => Promise.resolve(show)),
+    },
+    lectures: {
+      getView: vi.fn(() =>
+        Promise.resolve({ agenda: [], import: { status: 'idle' as const } }),
+      ),
+      importNow: noop,
+      stopCurrent: noop,
+      setSkipped: noop,
+      onChanged: vi.fn(() => () => undefined),
     },
     core: {
       getStatus: vi.fn(() => Promise.resolve('running' as const)),
@@ -347,11 +358,16 @@ describe('onboarding UI', () => {
     expect(fake.openManualSso).toHaveBeenCalledTimes(1);
   });
 
-  it('shows the active session panel and rechecks the session', async () => {
+  it('session_ready opens the main screen and rechecks the session', async () => {
     fake.getState.mockResolvedValue({ phase: 'session_ready' });
     render(<App />);
 
-    expect(await screen.findByText(/сессия активна/i)).toBeVisible();
+    expect(
+      await screen.findByRole('heading', { name: 'Расписание' }),
+    ).toBeVisible();
+    expect(
+      (await screen.findAllByText('Онлайн-пар не найдено')).length,
+    ).toBeGreaterThan(0);
     fireEvent.click(screen.getByRole('button', { name: 'Проверить вход' }));
 
     expect(fake.checkSession).toHaveBeenCalledTimes(1);

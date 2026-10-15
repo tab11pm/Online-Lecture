@@ -1,6 +1,15 @@
-import type { Run, RunRepository } from '../core/types.js';
+import type { Run, RunRepository, RunStatus } from '../core/types.js';
 import { transitionRun } from '../core/lifecycle.js';
 import { SqliteStore } from './sqlite-store.js';
+
+const interruptedStatuses: ReadonlySet<RunStatus> = new Set([
+  'resolving',
+  'joining',
+  'waiting_room',
+  'connected',
+  'reconnecting',
+  'leaving',
+]);
 
 export class SqliteRunRepository implements RunRepository {
   constructor(private readonly store: SqliteStore) {}
@@ -51,6 +60,46 @@ export class SqliteRunRepository implements RunRepository {
     updatedAt: string,
   ): Promise<Run | undefined> {
     return this.transitionScheduled(jobId, occurrenceId, updatedAt, 'skipped');
+  }
+
+  async listAll(): Promise<Run[]> {
+    const rows = this.store
+      .getDatabase()
+      .prepare('SELECT payload FROM runs ORDER BY rowid')
+      .all() as { payload: string }[];
+    return rows.map((row) => JSON.parse(row.payload) as Run);
+  }
+
+  async failInterrupted(updatedAt: string): Promise<number> {
+    const database = this.store.getDatabase();
+    return database
+      .transaction(() => {
+        const rows = database
+          .prepare('SELECT job_id, occurrence_id, payload FROM runs')
+          .all() as {
+          job_id: string;
+          occurrence_id: string;
+          payload: string;
+        }[];
+        const update = database.prepare(
+          'UPDATE runs SET payload = ? WHERE job_id = ? AND occurrence_id = ?',
+        );
+        let count = 0;
+        for (const row of rows) {
+          const run = JSON.parse(row.payload) as Run;
+          if (!interruptedStatuses.has(run.status)) continue;
+          const failed: Run = {
+            ...run,
+            status: 'failed',
+            completionReason: 'error',
+            updatedAt,
+          };
+          update.run(JSON.stringify(failed), row.job_id, row.occurrence_id);
+          count += 1;
+        }
+        return count;
+      })
+      .immediate();
   }
 
   private async transitionScheduled(

@@ -45,4 +45,23 @@ describe('SettingsStore', () => {
     await writeFile(file, '{"autostart":false,"browser":"safari"}');
     expect(await new SettingsStore(file).read()).toEqual({ autostart: false });
   });
+
+  it('stores showLectureWindow', async () => {
+    const file = join(dir, 'settings.json');
+    const store = new SettingsStore(file);
+    await store.update({ showLectureWindow: false });
+    expect(await new SettingsStore(file).read()).toEqual({
+      autostart: false,
+      showLectureWindow: false,
+    });
+  });
+
+  it('drops a non-boolean showLectureWindow', async () => {
+    const file = join(dir, 'settings.json');
+    await writeFile(file, '{"autostart":false,"showLectureWindow":"no"}');
+    expect(await new SettingsStore(file).read()).toEqual({ autostart: false });
+    const store = new SettingsStore(file);
+    await store.update({ showLectureWindow: 1 as unknown as boolean });
+    expect(await store.read()).toEqual({ autostart: false });
+  });
 });

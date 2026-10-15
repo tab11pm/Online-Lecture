@@ -119,3 +119,19 @@ describe('SdoMcpSessionProvider', () => {
     );
   });
 });
+
+describe('SdoMcpSessionProvider.createClient', () => {
+  it('builds a client with the auth state and without credentials', () => {
+    const provider = new SdoMcpSessionProvider(config);
+    provider.setBrowserChoice('edge');
+    const client = provider.createClient('/data/auth.json');
+    const env = (client as unknown as { config: { env?: NodeJS.ProcessEnv } })
+      .config.env;
+    expect(env).toMatchObject({
+      SDO_AUTH_STATE_PATH: '/data/auth.json',
+      SDO_BROWSER_CHANNEL: 'msedge',
+    });
+    expect(env).not.toHaveProperty('SDO_USERNAME');
+    expect(env).not.toHaveProperty('SDO_PASSWORD');
+  });
+});

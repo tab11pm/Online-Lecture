@@ -129,4 +129,30 @@ describe('registerIpc', () => {
 
     await expect(invoke('app:missing')).rejects.toThrow();
   });
+
+  it('registers the lecture channels and redacts their errors', async () => {
+    const { ipcMain, registered, invoke } = fakeIpcMain();
+    registerIpc({
+      ipcMain,
+      handlers: handlersWith({
+        [CHANNELS.lectures.importNow]: vi
+          .fn()
+          .mockRejectedValue(new Error('cookie: session=abc')),
+      }),
+    });
+    for (const channel of [
+      CHANNELS.lectures.getView,
+      CHANNELS.lectures.importNow,
+      CHANNELS.lectures.stopCurrent,
+      CHANNELS.lectures.setSkipped,
+      CHANNELS.app.getShowLectureWindow,
+      CHANNELS.app.setShowLectureWindow,
+    ]) {
+      expect(registered).toContain(channel);
+    }
+    const error = await invoke(CHANNELS.lectures.importNow).catch(
+      (e: unknown) => e,
+    );
+    expect(String((error as Error).message)).not.toContain('session=abc');
+  });
 });

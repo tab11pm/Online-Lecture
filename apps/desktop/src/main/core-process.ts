@@ -5,6 +5,7 @@ import type {
 } from '../shared/ipc-contract.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
+import type { LecturesView } from '../shared/lectures.js';
 import type { BrowserChoice } from '../shared/browser-choice.js';
 
 export const REQUEST_TIMEOUT_MS = 120_000;
@@ -21,6 +22,7 @@ export interface CoreProcessCallbacks {
   onChanged(state: OnboardingState): void;
   onStatusChanged(status: CoreStatus): void;
   onNotification(notification: CoreNotification): void;
+  onLecturesChanged(view: LecturesView): void;
 }
 
 /**
@@ -38,6 +40,7 @@ export interface CoreProcessOptions {
   entryPath: string;
   userDataDir: string;
   initialBrowserChoice?: BrowserChoice;
+  initialShowLectureWindow: boolean;
   externalChannel?: string;
   fork(entryPath: string, args: string[]): CoreChild;
 }
@@ -47,6 +50,11 @@ interface Pending<T> {
   reject(error: Error): void;
 }
 
+const EMPTY_LECTURES_VIEW: LecturesView = {
+  agenda: [],
+  import: { status: 'idle' },
+};
+
 export class CoreProcess {
   private child: CoreChild | undefined;
   private status: CoreStatus = 'idle';
@@ -55,6 +63,8 @@ export class CoreProcess {
   private lastState: OnboardingState = { phase: 'welcome' };
   private pendingState: Pending<OnboardingState> | undefined;
   private pendingLogin: Pending<LoginOutcome> | undefined;
+  private lecturesView: LecturesView = EMPTY_LECTURES_VIEW;
+  private shutdownWaiter: (() => void) | undefined;
   private stateRequest: Promise<OnboardingState> | undefined;
   private loginRequest: Promise<LoginOutcome> | undefined;
 
@@ -83,6 +93,10 @@ export class CoreProcess {
         choice: this.options.initialBrowserChoice,
       });
     }
+    this.queued.unshift({
+      type: 'lectures.setShowWindow',
+      show: this.options.initialShowLectureWindow,
+    });
     const child = this.options.fork(this.options.entryPath, [
       this.options.userDataDir,
       this.options.externalChannel === undefined ? '0' : '1',
@@ -97,6 +111,9 @@ export class CoreProcess {
       this.ready = false;
       this.queued.length = 0;
       this.rejectPending('Процесс ядра неожиданно завершился.');
+      this.lecturesView = EMPTY_LECTURES_VIEW;
+      this.callbacks.onLecturesChanged(EMPTY_LECTURES_VIEW);
+      this.shutdownWaiter?.();
       if (this.status !== 'stopped') {
         this.setStatus('error');
         this.callbacks.onNotification({
@@ -150,6 +167,58 @@ export class CoreProcess {
     this.options.initialBrowserChoice = choice;
     this.ensureStarted();
     this.post({ type: 'browser.setChoice', choice });
+  }
+
+  getLecturesView(): LecturesView {
+    return this.lecturesView;
+  }
+
+  importLectures(): void {
+    this.ensureStarted();
+    this.post({ type: 'lectures.import' });
+  }
+
+  stopCurrentLecture(): void {
+    this.ensureStarted();
+    this.post({ type: 'lectures.stopCurrent' });
+  }
+
+  setLectureSkipped(
+    jobId: string,
+    occurrenceId: string,
+    skipped: boolean,
+  ): void {
+    this.ensureStarted();
+    this.post({ type: 'lectures.setSkipped', jobId, occurrenceId, skipped });
+  }
+
+  setShowLectureWindow(show: boolean): void {
+    this.options.initialShowLectureWindow = show;
+    this.ensureStarted();
+    this.post({ type: 'lectures.setShowWindow', show });
+  }
+
+  systemResumed(): void {
+    if (this.child) {
+      this.post({ type: 'system.resumed' });
+    }
+  }
+
+  async shutdown(timeoutMs: number): Promise<void> {
+    if (this.child && this.ready) {
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(done, timeoutMs);
+        const waiter = done;
+        this.shutdownWaiter = waiter;
+        function done(): void {
+          clearTimeout(timer);
+          resolve();
+        }
+        this.child?.postMessage({ type: 'app.shutdown' } satisfies MainCommand);
+      });
+      this.shutdownWaiter = undefined;
+    }
+    this.stop();
   }
 
   private ensureStarted(): void {
@@ -292,6 +361,13 @@ export class CoreProcess {
         this.lastState = event.state;
         this.callbacks.onChanged(event.state);
         this.pendingState?.resolve(event.state);
+        return;
+      case 'lectures.changed':
+        this.lecturesView = event.view;
+        this.callbacks.onLecturesChanged(event.view);
+        return;
+      case 'host.shutdownComplete':
+        this.shutdownWaiter?.();
         return;
       case 'onboarding.loginResult':
         this.pendingLogin?.resolve(event.outcome);

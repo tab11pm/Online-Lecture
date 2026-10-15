@@ -6,6 +6,7 @@ export interface AppSettings {
   autostart: boolean;
   username?: string;
   browser?: BrowserChoice;
+  showLectureWindow?: boolean;
 }
 
 export interface SettingsStore {
@@ -32,6 +33,9 @@ function parseSettings(raw: string): AppSettings | undefined {
   }
   if (record['browser'] === 'edge' || record['browser'] === 'chromium') {
     settings.browser = record['browser'];
+  }
+  if (typeof record['showLectureWindow'] === 'boolean') {
+    settings.showLectureWindow = record['showLectureWindow'];
   }
   return settings;
 }
@@ -67,6 +71,9 @@ const SettingsStore = class SettingsStoreImpl implements SettingsStore {
     }
     if (patch.browser === 'edge' || patch.browser === 'chromium') {
       next.browser = patch.browser;
+    }
+    if (typeof patch.showLectureWindow === 'boolean') {
+      next.showLectureWindow = patch.showLectureWindow;
     }
     await mkdir(dirname(this.filePath), { recursive: true });
     await writeFile(this.filePath, JSON.stringify(next, null, 2), 'utf8');

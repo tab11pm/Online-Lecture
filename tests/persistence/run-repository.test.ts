@@ -109,4 +109,84 @@ describe('SqliteRunRepository', () => {
     expect(duplicate).toEqual({ run: first, created: false });
     store.close();
   });
+
+  it('fails interrupted runs and leaves terminal ones untouched', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-recover-'));
+    directories.push(directory);
+    const store = new SqliteStore(join(directory, 'lectures.sqlite'));
+    await store.open();
+    const repo = new SqliteRunRepository(store);
+    const make = (occurrenceId: string, status: Run['status']): Run => ({
+      jobId: 'math',
+      occurrenceId,
+      status,
+      createdAt: '2026-09-29T14:00:00Z',
+      updatedAt: '2026-09-29T14:00:00Z',
+    });
+    for (const status of [
+      'scheduled',
+      'resolving',
+      'joining',
+      'waiting_room',
+      'connected',
+      'reconnecting',
+      'leaving',
+      'completed',
+      'skipped',
+      'blocked',
+      'failed',
+    ] as const) {
+      await repo.getOrCreate(make(status, status));
+    }
+
+    expect(await repo.failInterrupted('2026-09-29T15:00:00Z')).toBe(6);
+
+    const byId = new Map(
+      (await repo.listAll()).map((run) => [run.occurrenceId, run]),
+    );
+    for (const id of [
+      'resolving',
+      'joining',
+      'waiting_room',
+      'connected',
+      'reconnecting',
+      'leaving',
+    ]) {
+      expect(byId.get(id)).toMatchObject({
+        status: 'failed',
+        completionReason: 'error',
+        updatedAt: '2026-09-29T15:00:00Z',
+      });
+    }
+    for (const id of [
+      'scheduled',
+      'completed',
+      'skipped',
+      'blocked',
+      'failed',
+    ]) {
+      expect(byId.get(id)?.status).toBe(id);
+      expect(byId.get(id)?.updatedAt).toBe('2026-09-29T14:00:00Z');
+    }
+    store.close();
+  });
+
+  it('lists all runs', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-list-'));
+    directories.push(directory);
+    const store = new SqliteStore(join(directory, 'lectures.sqlite'));
+    await store.open();
+    const repo = new SqliteRunRepository(store);
+    expect(await repo.listAll()).toEqual([]);
+    const run: Run = {
+      jobId: 'math',
+      occurrenceId: 'a',
+      status: 'scheduled',
+      createdAt: '2026-09-29T14:00:00Z',
+      updatedAt: '2026-09-29T14:00:00Z',
+    };
+    await repo.getOrCreate(run);
+    expect(await repo.listAll()).toEqual([run]);
+    store.close();
+  });
 });

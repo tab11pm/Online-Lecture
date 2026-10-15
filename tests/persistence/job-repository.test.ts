@@ -105,3 +105,65 @@ describe('SqliteJobRepository', () => {
     store.close();
   });
 });
+
+describe('SqliteJobRepository.replaceTimetableJobs', () => {
+  const makeJob = (id: string, source?: 'timetable' | 'manual'): Job => ({
+    id,
+    enabled: true,
+    ...(source === undefined ? {} : { source }),
+    schedule: {
+      type: 'once',
+      date: '2026-09-28',
+      joinAt: '10:00',
+      leaveAt: '11:35',
+      timezone: 'Asia/Tomsk',
+    },
+    target: { type: 'search', courseId: id },
+    browser: { headless: false },
+  });
+
+  async function openRepository() {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    directories.push(directory);
+    const store = new SqliteStore(join(directory, 'lectures.sqlite'));
+    await store.open();
+    return { store, repository: new SqliteJobRepository(store), directory };
+  }
+
+  it('replaces timetable jobs atomically', async () => {
+    const { store, repository, directory } = await openRepository();
+    const original = [
+      makeJob('tt:a', 'timetable'),
+      makeJob('tt:b', 'timetable'),
+    ];
+    for (const job of original) await repository.save(job);
+
+    const poisoned = {
+      ...makeJob('tt:c', 'timetable'),
+      toJSON() {
+        throw new Error('boom');
+      },
+    } as Job;
+    await expect(
+      repository.replaceTimetableJobs([makeJob('tt:a', 'timetable'), poisoned]),
+    ).rejects.toThrow('boom');
+
+    expect(await repository.listAll()).toEqual(original);
+    expect(await readdir(join(directory, 'backups'))).not.toHaveLength(0);
+    store.close();
+  });
+
+  it('keeps manual jobs when replacing timetable jobs', async () => {
+    const { store, repository } = await openRepository();
+    await repository.save(makeJob('manual-1', 'manual'));
+    await repository.save(makeJob('tt:old', 'timetable'));
+
+    await repository.replaceTimetableJobs([makeJob('tt:new', 'timetable')]);
+
+    expect((await repository.listAll()).map((job) => job.id)).toEqual([
+      'manual-1',
+      'tt:new',
+    ]);
+    store.close();
+  });
+});

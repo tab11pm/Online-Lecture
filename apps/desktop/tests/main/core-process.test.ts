@@ -47,19 +47,28 @@ function createProcess({ autoReady = true } = {}) {
   const onChanged = vi.fn();
   const onStatusChanged = vi.fn();
   const onNotification = vi.fn();
+  const onLecturesChanged = vi.fn();
   const core = new CoreProcess(
     {
       entryPath: '/entry.js',
       userDataDir: '/data',
+      initialShowLectureWindow: true,
       fork: () => fake.child,
     },
-    { onChanged, onStatusChanged, onNotification },
+    { onChanged, onStatusChanged, onNotification, onLecturesChanged },
   );
   if (autoReady) {
     core.start();
     fake.emitMessage({ type: 'host.ready' });
   }
-  return { core, onChanged, onStatusChanged, onNotification, ...fake };
+  return {
+    core,
+    onChanged,
+    onStatusChanged,
+    onNotification,
+    onLecturesChanged,
+    ...fake,
+  };
 }
 
 function errorMessage(error: unknown): string {
@@ -90,14 +99,20 @@ describe('CoreProcess request bridge', () => {
         entryPath: '/entry.js',
         userDataDir: '/data',
         initialBrowserChoice: 'chromium',
+        initialShowLectureWindow: true,
         fork: () => fake.child,
       },
-      { onChanged: vi.fn(), onStatusChanged: vi.fn(), onNotification: vi.fn() },
+      {
+        onChanged: vi.fn(),
+        onStatusChanged: vi.fn(),
+        onNotification: vi.fn(),
+        onLecturesChanged: vi.fn(),
+      },
     );
     core.start();
     void core.checkSession();
     fake.emitMessage({ type: 'host.ready' });
-    expect(fake.posted.slice(0, 2)).toEqual([
+    expect(fake.posted.slice(1, 3)).toEqual([
       { type: 'browser.setChoice', choice: 'chromium' },
       { type: 'onboarding.checkSession' },
     ]);
@@ -276,5 +291,129 @@ describe('CoreProcess request bridge', () => {
 
     emitMessage({ type: 'onboarding.loginResult', outcome: { ok: true } });
     await expect(pending).resolves.toEqual({ ok: true });
+  });
+});
+
+describe('CoreProcess lectures', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const view = { agenda: [], import: { status: 'idle' as const } };
+
+  it('caches the latest lectures view', () => {
+    const { core, onLecturesChanged, emitMessage } = createProcess();
+    expect(core.getLecturesView()).toEqual(view);
+    const next = {
+      ...view,
+      import: { status: 'running' as const, stage: 'group' as const },
+    };
+    emitMessage({ type: 'lectures.changed', view: next });
+    expect(core.getLecturesView()).toEqual(next);
+    expect(onLecturesChanged).toHaveBeenCalledWith(next);
+  });
+
+  it('resets and broadcasts the empty view when the worker exits', () => {
+    const { core, onLecturesChanged, emitMessage, emitExit } = createProcess();
+    emitMessage({
+      type: 'lectures.changed',
+      view: {
+        ...view,
+        import: { status: 'running' as const, stage: 'group' as const },
+      },
+    });
+    onLecturesChanged.mockClear();
+    emitExit(1);
+    expect(core.getLecturesView()).toEqual(view);
+    expect(onLecturesChanged).toHaveBeenCalledWith(view);
+  });
+
+  it('sends the initial show-window setting before queued commands flush', () => {
+    const fake = createFakeChild();
+    const core = new CoreProcess(
+      {
+        entryPath: '/entry.js',
+        userDataDir: '/data',
+        initialShowLectureWindow: false,
+        fork: () => fake.child,
+      },
+      {
+        onChanged: vi.fn(),
+        onStatusChanged: vi.fn(),
+        onNotification: vi.fn(),
+        onLecturesChanged: vi.fn(),
+      },
+    );
+    core.start();
+    core.importLectures();
+    fake.emitMessage({ type: 'host.ready' });
+    expect(fake.posted.slice(0, 2)).toEqual([
+      { type: 'lectures.setShowWindow', show: false },
+      { type: 'lectures.import' },
+    ]);
+  });
+
+  it('forwards lecture commands', () => {
+    const { core, posted } = createProcess();
+    core.importLectures();
+    core.stopCurrentLecture();
+    core.setLectureSkipped('j', 'o', true);
+    core.setShowLectureWindow(false);
+    core.systemResumed();
+    expect(posted.slice(1)).toEqual([
+      { type: 'lectures.import' },
+      { type: 'lectures.stopCurrent' },
+      {
+        type: 'lectures.setSkipped',
+        jobId: 'j',
+        occurrenceId: 'o',
+        skipped: true,
+      },
+      { type: 'lectures.setShowWindow', show: false },
+      { type: 'system.resumed' },
+    ]);
+  });
+
+  it('shutdown waits for shutdownComplete', async () => {
+    const { core, posted, emitMessage } = createProcess();
+    let done = false;
+    const pending = core.shutdown(10_000).then(() => {
+      done = true;
+    });
+    expect(posted).toContainEqual({ type: 'app.shutdown' });
+    await Promise.resolve();
+    expect(done).toBe(false);
+    emitMessage({ type: 'host.shutdownComplete' });
+    await pending;
+    expect(core.getStatus()).toBe('stopped');
+  });
+
+  it('shutdown gives up after the timeout', async () => {
+    vi.useFakeTimers();
+    const { core } = createProcess();
+    const pending = core.shutdown(10_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+    await pending;
+    expect(core.getStatus()).toBe('stopped');
+  });
+
+  it('shutdown without a running worker resolves immediately', async () => {
+    const fake = createFakeChild();
+    const core = new CoreProcess(
+      {
+        entryPath: '/entry.js',
+        userDataDir: '/data',
+        initialShowLectureWindow: true,
+        fork: () => fake.child,
+      },
+      {
+        onChanged: vi.fn(),
+        onStatusChanged: vi.fn(),
+        onNotification: vi.fn(),
+        onLecturesChanged: vi.fn(),
+      },
+    );
+    await core.shutdown(10_000);
+    expect(core.getStatus()).toBe('stopped');
   });
 });

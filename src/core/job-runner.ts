@@ -64,6 +64,7 @@ export interface RunResult {
   completionReason?: CompletionReason;
   bbbUrl?: string;
   error?: string;
+  authRequired?: true;
   durationSeconds: number;
 }
 
@@ -190,6 +191,7 @@ export class JobRunner {
             if (resolution.status === 'resolved') {
               bbbUrl = resolution.module.activityUrl;
             } else if (resolution.status === 'auth_required') {
+              result.authRequired = true;
               throw new Error('SDO authentication required');
             } else if (resolution.status === 'not_found') {
               throw new Error('Online lecture not found');
