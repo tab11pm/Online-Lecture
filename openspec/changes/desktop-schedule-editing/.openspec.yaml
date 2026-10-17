@@ -1,0 +1,6 @@
+schema: spec-driven
+created: 2026-10-18
+goal: Редактировать импортированные пары, переносить их и добавлять ручные лекции в десктопном приложении.
+depends_on:
+  - desktop-lectures
+  - timetable-auto-import
