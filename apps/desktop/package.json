@@ -5,7 +5,10 @@
   "type": "module",
   "main": "out/main/index.js",
   "scripts": {
+    "build:native": "node scripts/build-native-sqlite.mjs",
+    "predev": "npm run build:native",
     "dev": "electron-vite dev",
+    "prebuild": "npm run build:native",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
     "test": "vitest run",

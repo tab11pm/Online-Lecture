@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  applySqliteBindingDefault,
   applyDesktopServerDefaults,
   envFileCandidates,
   findWorkspaceRoot,
@@ -121,5 +122,25 @@ describe('applyDesktopServerDefaults', () => {
     applyDesktopServerDefaults(env, 'linux');
 
     expect('SDO_BROWSER_CHANNEL' in env).toBe(false);
+  });
+});
+
+describe('applySqliteBindingDefault', () => {
+  it('points the core at the Electron SQLite build inside the app', () => {
+    const env: NodeJS.ProcessEnv = {};
+    applySqliteBindingDefault(env, join('/app', 'desktop'));
+    expect(env.ONLINE_LECTURE_SQLITE_BINDING).toBe(
+      join('/app', 'desktop', 'native', 'better_sqlite3.node'),
+    );
+  });
+
+  it('keeps an explicitly configured binding', () => {
+    const env: NodeJS.ProcessEnv = {
+      ONLINE_LECTURE_SQLITE_BINDING: '/custom/better_sqlite3.node',
+    };
+    applySqliteBindingDefault(env, '/app');
+    expect(env.ONLINE_LECTURE_SQLITE_BINDING).toBe(
+      '/custom/better_sqlite3.node',
+    );
   });
 });

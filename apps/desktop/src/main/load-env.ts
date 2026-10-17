@@ -95,3 +95,18 @@ export function applyDesktopServerDefaults(
     env.SDO_BROWSER_CHANNEL = choice === 'edge' ? 'msedge' : '';
   }
 }
+
+/**
+ * Points the core process at the better-sqlite3 binary built for Electron
+ * (`npm run build:native -w @online-lecture/desktop`) unless one is configured.
+ */
+export function applySqliteBindingDefault(
+  env: NodeJS.ProcessEnv,
+  appPath: string,
+): void {
+  env.ONLINE_LECTURE_SQLITE_BINDING ??= join(
+    appPath,
+    'native',
+    'better_sqlite3.node',
+  );
+}

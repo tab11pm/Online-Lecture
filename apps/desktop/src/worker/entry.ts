@@ -87,6 +87,7 @@ new CoreHost(transport, {
   lectures: (events) =>
     new LectureService({
       databasePath: paths.database,
+      sqliteBinding: process.env.ONLINE_LECTURE_SQLITE_BINDING,
       adapters,
       now: () => new Date(),
       onView: events.onView,
