@@ -28,6 +28,12 @@ export type LectureControl = Pick<
   | 'importNow'
   | 'stopCurrent'
   | 'setSkipped'
+  | 'resolveManualTarget'
+  | 'saveManual'
+  | 'editImportedTime'
+  | 'reschedule'
+  | 'cancelReschedule'
+  | 'deleteLecture'
   | 'setBrowser'
   | 'resumed'
   | 'shutdown'
@@ -180,6 +186,14 @@ export class CoreHost {
     }
     try {
       switch (command.type) {
+        case 'lectures.resolveManualTarget':
+        case 'lectures.saveManual':
+        case 'lectures.editImportedTime':
+        case 'lectures.reschedule':
+        case 'lectures.cancelReschedule':
+        case 'lectures.deleteLecture':
+          await this.handleLectureCommand(command);
+          return;
         case 'browser.setChoice': {
           this.provider?.setBrowserChoice?.(command.choice);
           const channel = browserChannel(command.choice);
@@ -252,6 +266,37 @@ export class CoreHost {
         type: 'host.error',
         message: localizeHostError(redactSensitiveText(errorMessage(error))),
       });
+    }
+  }
+
+  private async handleLectureCommand(command: Extract<MainCommand, { requestId: string }>): Promise<void> {
+    try {
+      if (!this.sessionReady || !await this.lecturesReady || !this.lectures)
+        throw new Error(SESSION_EXPIRED_MESSAGE);
+      let value: unknown;
+      switch (command.type) {
+        case 'lectures.resolveManualTarget':
+          value = await this.lectures.resolveManualTarget(command.query);
+          break;
+        case 'lectures.saveManual':
+          await this.lectures.saveManual(command.input);
+          break;
+        case 'lectures.editImportedTime':
+          await this.lectures.editImportedTime(command.input);
+          break;
+        case 'lectures.reschedule':
+          value = await this.lectures.reschedule(command.input);
+          break;
+        case 'lectures.cancelReschedule':
+          await this.lectures.cancelReschedule(command.jobId);
+          break;
+        case 'lectures.deleteLecture':
+          await this.lectures.deleteLecture(command.jobId, command.date);
+          break;
+      }
+      this.transport.post({ type: 'lectures.commandResult', requestId: command.requestId, ok: true, value });
+    } catch (error) {
+      this.transport.post({ type: 'lectures.commandResult', requestId: command.requestId, ok: false, message: localizeHostError(redactSensitiveText(errorMessage(error))) });
     }
   }
 

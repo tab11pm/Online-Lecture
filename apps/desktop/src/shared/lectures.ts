@@ -54,3 +54,14 @@ export interface LecturesView {
 }
 
 export type LectureBrowserOptions = { channel?: 'msedge'; headless: boolean };
+
+export interface ManualTargetCandidate {
+  id: string;
+  name: string;
+  type: 'lecture' | 'practical';
+  courseName: string;
+}
+
+export type ManualTargetLookup =
+  | { status: 'resolved' | 'ambiguous'; candidates: ManualTargetCandidate[] }
+  | { status: 'not_found' | 'auth_required' };

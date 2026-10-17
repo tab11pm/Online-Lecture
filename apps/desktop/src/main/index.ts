@@ -220,6 +220,12 @@ void app.whenReady().then(async () => {
         appCore.setLectureSkipped(jobId, occurrenceId, skipped === true);
         return Promise.resolve();
       },
+      [CHANNELS.lectures.resolveManualTarget]: (query: string) => appCore.resolveManualTarget(query),
+      [CHANNELS.lectures.saveManual]: (input: Parameters<CoreProcess['saveManual']>[0]) => appCore.saveManual(input),
+      [CHANNELS.lectures.editImportedTime]: (input: Parameters<CoreProcess['editImportedTime']>[0]) => appCore.editImportedTime(input),
+      [CHANNELS.lectures.reschedule]: (input: Parameters<CoreProcess['reschedule']>[0]) => appCore.reschedule(input),
+      [CHANNELS.lectures.cancelReschedule]: (jobId: string) => appCore.cancelReschedule(jobId),
+      [CHANNELS.lectures.deleteLecture]: (jobId: string, date?: string) => appCore.deleteLecture(jobId, date),
       [CHANNELS.core.getStatus]: () => appCore.getStatus(),
       [CHANNELS.core.start]: () => appCore.start(),
       [CHANNELS.core.stop]: () => appCore.stop(),

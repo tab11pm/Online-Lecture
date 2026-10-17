@@ -80,6 +80,12 @@ function fakeLectures() {
     importNow: vi.fn(async () => undefined),
     stopCurrent: vi.fn(async () => undefined),
     setSkipped: vi.fn(async () => undefined),
+    resolveManualTarget: vi.fn(async () => ({ status: 'not_found' as const })),
+    saveManual: vi.fn(async () => undefined),
+    editImportedTime: vi.fn(async () => undefined),
+    reschedule: vi.fn(async () => 'manual:1'),
+    cancelReschedule: vi.fn(async () => undefined),
+    deleteLecture: vi.fn(async () => undefined),
     setBrowser: vi.fn(),
     resumed: vi.fn(),
     shutdown: vi.fn(async () => undefined),
@@ -95,6 +101,30 @@ function fakeLectures() {
 }
 
 describe('CoreHost', () => {
+  it('returns only safe candidate fields from a successful lookup', async () => {
+    const lectures = fakeLectures();
+    lectures.control.resolveManualTarget.mockResolvedValueOnce({ status: 'resolved', candidates: [{ id: 'opaque', name: 'Лекция', type: 'lecture', courseName: 'Математика' }] });
+    const { transport, send, posted } = fakeTransport();
+    new CoreHost(transport, { paths, machine: machine(), lectures: lectures.factory }).start();
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+    send({ type: 'lectures.resolveManualTarget', requestId: 'r2', query: 'Математика' });
+    await flush();
+    const result = posted.find((event) => event.type === 'lectures.commandResult' && event.requestId === 'r2');
+    expect(result).toMatchObject({ type: 'lectures.commandResult', ok: true, value: { status: 'resolved', candidates: [{ id: 'opaque', name: 'Лекция' }] } });
+    expect(JSON.stringify(result)).not.toContain('https:');
+  });
+
+  it('rejects schedule editing without an available session', async () => {
+    const lectures = fakeLectures();
+    const { transport, send, posted } = fakeTransport();
+    new CoreHost(transport, { paths, machine: machine({ checkSession: vi.fn().mockResolvedValue(false) }), lectures: lectures.factory }).start();
+    send({ type: 'lectures.deleteLecture', requestId: 'r1', jobId: 'manual:1' });
+    await flush();
+    expect(lectures.control.deleteLecture).not.toHaveBeenCalled();
+    expect(posted).toContainEqual(expect.objectContaining({ type: 'lectures.commandResult', requestId: 'r1', ok: false }));
+  });
+
   it('applies browser changes to future provider operations', () => {
     const { transport, send } = fakeTransport();
     const provider = {

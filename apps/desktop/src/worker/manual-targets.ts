@@ -1,17 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { redactSensitiveText } from '@core/core/redaction.js';
 import type { OnlineLectureResolution } from '@core/core/types.js';
-
-export interface ManualTargetCandidate {
-  id: string;
-  name: string;
-  type: 'lecture' | 'practical';
-  courseName: string;
-}
-
-export type ManualTargetLookup =
-  | { status: 'resolved' | 'ambiguous'; candidates: ManualTargetCandidate[] }
-  | { status: 'not_found' | 'auth_required' };
+import type { ManualTargetLookup } from '../shared/lectures.js';
 
 export function parseManualQuery(query: string): {
   courseUrl?: string;

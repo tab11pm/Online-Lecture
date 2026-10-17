@@ -10,6 +10,7 @@ import type {
 import type { OnboardingState } from '../shared/onboarding.js';
 import type { LecturesView } from '../shared/lectures.js';
 import type { BrowserChoice, BrowserView } from '../shared/browser-choice.js';
+import type { EditImportedTimeInput, ManualScheduleInput, RescheduleInput } from '@core/core/schedule-editing.js';
 
 function subscribe<T>(
   channel: string,
@@ -60,6 +61,12 @@ const api: DesktopApi = {
         occurrenceId,
         skipped,
       ),
+    resolveManualTarget: (query: string) => ipcRenderer.invoke(CHANNELS.lectures.resolveManualTarget, query),
+    saveManual: (input: { candidateId: string; title: string; schedule: ManualScheduleInput }) => ipcRenderer.invoke(CHANNELS.lectures.saveManual, input),
+    editImportedTime: (input: EditImportedTimeInput) => ipcRenderer.invoke(CHANNELS.lectures.editImportedTime, input),
+    reschedule: (input: RescheduleInput) => ipcRenderer.invoke(CHANNELS.lectures.reschedule, input),
+    cancelReschedule: (jobId: string) => ipcRenderer.invoke(CHANNELS.lectures.cancelReschedule, jobId),
+    deleteLecture: (jobId: string, date?: string) => ipcRenderer.invoke(CHANNELS.lectures.deleteLecture, jobId, date),
     onChanged: subscribe<LecturesView>(CHANNELS.lectures.changed),
   },
   core: {

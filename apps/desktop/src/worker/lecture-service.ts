@@ -28,7 +28,8 @@ import type {
 } from '../shared/lectures.js';
 import type { CoreLog } from './core-log.js';
 import { ImportScheduler } from './import-scheduler.js';
-import { ManualTargetStore, parseManualQuery, type ManualTargetLookup } from './manual-targets.js';
+import { ManualTargetStore, parseManualQuery } from './manual-targets.js';
+import type { ManualTargetLookup } from '../shared/lectures.js';
 import { SchedulerLoop } from './scheduler-loop.js';
 import { SingleLectureRunner } from './single-lecture-runner.js';
 
