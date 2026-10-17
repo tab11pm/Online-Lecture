@@ -46,6 +46,31 @@ function run(job: Job, occurrenceId: string, patch: Partial<Run>): Run {
 }
 
 describe('buildAgenda', () => {
+  it('uses the manual title instead of the internal job id', () => {
+    const job: Job = {
+      id: 'manual:7',
+      enabled: true,
+      source: 'manual',
+      title: 'Прикладная математика',
+      schedule: {
+        type: 'once',
+        date: '2026-10-19',
+        joinAt: '10:00',
+        leaveAt: '11:35',
+        timezone: zone,
+      },
+      target: {
+        type: 'direct',
+        activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=7',
+      },
+      browser: { headless: true },
+    };
+    expect(
+      buildAgenda([job], [], at('2026-10-19T08:00:00+07:00'), 1).entries[0]
+        ?.title,
+    ).toBe('Прикладная математика');
+  });
+
   it('expands imported occurrences within the horizon sorted by time', () => {
     const job = importedJob([
       { date: '2026-10-21', joinAt: '10:00', leaveAt: '11:35' },
