@@ -65,6 +65,18 @@ function directJob(): { job: Job; occurrenceId: string } {
 }
 
 describe('createLectureAdapters', () => {
+  it('resolves a manual target through MCP and closes the client', async () => {
+    const close = vi.fn(async () => undefined);
+    const resolveOnlineLecture = vi.fn(async () => ({ status: 'not_found' as const }));
+    const adapters = createLectureAdapters({
+      authStatePath: join(dir, 'auth.json'),
+      createMcpClient: () => ({ close, resolveOnlineLecture }) as unknown as SdoMcpClient,
+    });
+    expect(await adapters.resolveManualTarget({ courseQuery: 'Алгебра' })).toEqual({ status: 'not_found' });
+    expect(resolveOnlineLecture).toHaveBeenCalledWith({ courseQuery: 'Алгебра' });
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it('fails a run without launching when the chosen browser is missing', async () => {
     const jobs = new SqliteJobRepository(store);
     const runs = new SqliteRunRepository(store);

@@ -137,6 +137,38 @@ async function connected(last: () => LecturesView | undefined) {
 }
 
 describe('LectureService', () => {
+  it('saves a confirmed manual lecture without exposing its activity URL', async () => {
+    const { service } = setup({
+      resolveManualTarget: async () => ({ status: 'resolved', course: { id: '1', name: 'Математика' }, module: { id: '2', name: 'Лекция', type: 'lecture', courseUrl: 'https://sdo.tusur.ru/course/view.php?id=1', activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=2?token=secret' } }),
+    });
+    await service.open();
+    const lookup = await service.resolveManualTarget('Математика');
+    expect(lookup.status).toBe('resolved');
+    if (lookup.status !== 'resolved') return;
+    const candidateId = lookup.candidates[0]!.id;
+    expect(JSON.stringify(lookup)).not.toMatch(/https:|secret|token/);
+    const schedule = { type: 'once' as const, date: '2026-10-16', joinAt: '12:00', leaveAt: '13:00' };
+    await expect(service.saveManual({ candidateId: 'stale', title: 'Лекция', schedule })).rejects.toThrow();
+    await expect(service.saveManual({ candidateId, title: ' ', schedule })).rejects.toThrow();
+    await service.saveManual({ candidateId, title: 'Моя лекция', schedule });
+    await expect(service.saveManual({ candidateId, title: 'Моя лекция', schedule })).rejects.toThrow();
+    const jobs = await withStore(({ jobs }) => jobs.listAll());
+    expect(jobs).toEqual([expect.objectContaining({ source: 'manual', title: 'Моя лекция', target: { type: 'direct', activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=2?token=secret' } })]);
+    expect(JSON.stringify(service.getView())).not.toMatch(/https:|secret|token/);
+  });
+
+  it('keeps a confirmed candidate after a failed save and clears it on shutdown', async () => {
+    const { service } = setup();
+    await service.open();
+    const lookup = await service.resolveManualTarget('Демо');
+    if (lookup.status !== 'resolved') throw new Error('Expected fake candidate');
+    const candidateId = lookup.candidates[0]!.id;
+    await expect(service.saveManual({ candidateId, title: 'Демо', schedule: { type: 'once', date: '2026-10-14', joinAt: '12:00', leaveAt: '13:00' } })).rejects.toThrow();
+    await service.saveManual({ candidateId, title: 'Демо', schedule: { type: 'once', date: '2026-10-16', joinAt: '12:00', leaveAt: '13:00' } });
+    await service.shutdown(1_000);
+    await expect(service.saveManual({ candidateId, title: 'Демо', schedule: { type: 'once', date: '2026-10-17', joinAt: '12:00', leaveAt: '13:00' } })).rejects.toThrow();
+  });
+
   it('fails interrupted runs on open', async () => {
     await withStore(async ({ runs }) => {
       const run: Run = {

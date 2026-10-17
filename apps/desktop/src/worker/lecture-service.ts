@@ -1,9 +1,14 @@
 import type { RunResult } from '@core/core/job-runner.js';
+import { randomUUID } from 'node:crypto';
+import {
+  SCHEDULE_TIMEZONE,
+  type ManualScheduleInput,
+} from '@core/core/schedule-editing.js';
 import { buildAgenda, type AgendaEntry } from '@core/core/lecture-agenda.js';
 import { setOccurrenceSuppressed } from '@core/core/occurrence-suppression.js';
 import { redactSensitiveText } from '@core/core/redaction.js';
 import { Scheduler } from '@core/core/scheduler.js';
-import type { Job, Run } from '@core/core/types.js';
+import type { Job, OnlineLectureResolution, Run } from '@core/core/types.js';
 import { SqliteJobRepository } from '@core/persistence/job-repository.js';
 import { SqliteMetaRepository } from '@core/persistence/meta-repository.js';
 import { SqliteRunRepository } from '@core/persistence/run-repository.js';
@@ -20,10 +25,12 @@ import type {
 } from '../shared/lectures.js';
 import type { CoreLog } from './core-log.js';
 import { ImportScheduler } from './import-scheduler.js';
+import { ManualTargetStore, parseManualQuery, type ManualTargetLookup } from './manual-targets.js';
 import { SchedulerLoop } from './scheduler-loop.js';
 import { SingleLectureRunner } from './single-lecture-runner.js';
 
 export interface LectureAdapters {
+  resolveManualTarget(query: { courseUrl?: string; courseQuery?: string }): Promise<OnlineLectureResolution>;
   /** `browser` carries the latest options so the import uses the chosen channel. */
   runImport(
     jobs: SqliteJobRepository,
@@ -87,6 +94,7 @@ interface Repositories {
 
 /** Owns the lecture database, the scheduler loop, timetable imports and the one lecture runner. */
 export class LectureService {
+  private readonly manualTargets = new ManualTargetStore();
   private repos: Repositories | undefined;
   private active = false;
   /** Title of the running occurrence, kept in case an import removes its job. */
@@ -246,6 +254,39 @@ export class LectureService {
     await this.requireRepos().imports.request('manual');
   }
 
+  async resolveManualTarget(query: string): Promise<ManualTargetLookup> {
+    this.requireRepos();
+    const input = parseManualQuery(query);
+    this.manualTargets.clear();
+    const resolution = await this.deps.adapters.resolveManualTarget(input);
+    return this.manualTargets.remember(resolution, query);
+  }
+
+  async saveManual(input: {
+    candidateId: string;
+    title: string;
+    schedule: ManualScheduleInput;
+  }): Promise<void> {
+    const repos = this.requireRepos();
+    const target = this.manualTargets.get(input.candidateId);
+    if (!target) throw new Error('Select a confirmed SDO activity');
+    const title = input.title.trim();
+    if (!title) throw new Error('Enter a lecture title');
+    const job: Job = {
+      id: `manual:${randomUUID()}`,
+      enabled: true,
+      source: 'manual',
+      title,
+      schedule: { ...input.schedule, timezone: SCHEDULE_TIMEZONE },
+      target: { type: 'direct', activityUrl: target.activityUrl },
+      browser: { headless: this.browser.headless },
+    };
+    await repos.jobs.saveManual(job, this.deps.now());
+    this.manualTargets.consume(input.candidateId);
+    await this.publish();
+    if (this.active) void repos.loop.tick();
+  }
+
   async stopCurrent(): Promise<void> {
     await this.repos?.runner.stopCurrent();
     await this.publish();
@@ -289,6 +330,7 @@ export class LectureService {
   }
 
   async shutdown(timeoutMs: number): Promise<void> {
+    this.manualTargets.clear();
     this.deactivate();
     const repos = this.repos;
     if (!repos) return;

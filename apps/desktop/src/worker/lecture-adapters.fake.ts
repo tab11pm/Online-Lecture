@@ -50,6 +50,20 @@ function waitForAbort(signal: AbortSignal): Promise<void> {
 export function createFakeLectureAdapters(now: () => Date): LectureAdapters {
   const stamp = (): string => now().toISOString();
   return {
+    async resolveManualTarget() {
+      return {
+        status: 'resolved',
+        course: { id: 'demo', name: 'Демонстрационный курс' },
+        module: {
+          id: 'demo-lecture',
+          name: 'Демонстрационная лекция',
+          type: 'lecture',
+          courseUrl: 'https://sdo.tusur.ru/course/view.php?id=1',
+          activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
+        },
+      };
+    },
+
     async runImport(jobs, onProgress) {
       for (const stage of [
         'group',
