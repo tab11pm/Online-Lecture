@@ -54,6 +54,12 @@ const fake = vi.hoisted(() => {
       importNow: vi.fn(() => Promise.resolve()),
       stopCurrent: vi.fn(() => Promise.resolve()),
       setSkipped: vi.fn(() => Promise.resolve()),
+      resolveManualTarget: vi.fn(async () => ({ status: 'not_found' as const })),
+      saveManual: vi.fn(async () => undefined),
+      editImportedTime: vi.fn(async () => undefined),
+      reschedule: vi.fn(async () => 'manual:2'),
+      cancelReschedule: vi.fn(async () => undefined),
+      deleteLecture: vi.fn(async () => undefined),
       onChanged: vi.fn((listener: (view: LecturesView) => void) => {
         listeners.add(listener);
         return () => listeners.delete(listener);
@@ -95,6 +101,8 @@ function item(overrides: Partial<AgendaItem> = {}): AgendaItem {
     jobId: 'job-1',
     occurrenceId: 'occ-1',
     title: 'Математический анализ',
+    source: 'timetable',
+    editable: true,
     date: '2026-10-19',
     joinAt: '08:50',
     leaveAt: '10:25',
@@ -129,6 +137,22 @@ afterEach(() => {
 });
 
 describe('main screen', () => {
+  it('opens schedule editing and routes deletion to the selected occurrence', async () => {
+    show({ agenda: [item()] });
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Изменить / перенести' }));
+    expect(screen.getByRole('region', { name: /Изменить Математический анализ/ })).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть пару' }));
+    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith('job-1', '2026-10-19');
+  });
+
+  it('opens the manual lecture wizard from the main screen', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Добавить пару' }));
+    expect(screen.getByRole('region', { name: 'Добавить пару' })).toBeVisible();
+  });
+
   it('shows core notifications in an alert and unsubscribes on unmount', async () => {
     const { unmount } = render(<App />);
     await screen.findByText('Загрузка…').catch(() => undefined);

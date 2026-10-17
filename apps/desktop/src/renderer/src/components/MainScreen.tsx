@@ -5,6 +5,8 @@ import { AgendaList } from './AgendaList';
 import { ChromiumBanner } from './ChromiumBanner';
 import { ImportPanel } from './ImportPanel';
 import { LectureStatus } from './LectureStatus';
+import { ManualLectureWizard } from './ManualLectureWizard';
+import { ScheduleEditor } from './ScheduleEditor';
 import { SettingsPanel } from './SettingsPanel';
 
 export interface MainScreenProps {
@@ -21,6 +23,8 @@ export function MainScreen({ onCheckSession }: MainScreenProps) {
   const [view, setView] = useState<LecturesView>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
+  const [showWizard, setShowWizard] = useState(false);
+  const [editing, setEditing] = useState<AgendaItem>();
 
   useEffect(
     () =>
@@ -69,8 +73,44 @@ export function MainScreen({ onCheckSession }: MainScreenProps) {
             view={view.import}
             onImport={() => run(desktop.lectures.importNow())}
           />
+          <button
+            type="button"
+            onClick={() => {
+              setShowWizard(true);
+              setEditing(undefined);
+            }}
+          >
+            Добавить пару
+          </button>
+          {showWizard ? (
+            <ManualLectureWizard
+              onClose={() => setShowWizard(false)}
+              onAuthRequired={onCheckSession}
+            />
+          ) : null}
+          {editing ? (
+            <ScheduleEditor
+              item={editing}
+              onClose={() => setEditing(undefined)}
+            />
+          ) : null}
           <AgendaList
             agenda={view.agenda}
+            onEdit={(item) => {
+              setEditing(item);
+              setShowWizard(false);
+            }}
+            onDelete={(item) =>
+              run(
+                desktop.lectures.deleteLecture(
+                  item.jobId,
+                  item.source === 'timetable' ? item.date : undefined,
+                ),
+              )
+            }
+            onCancelReschedule={(item) =>
+              run(desktop.lectures.cancelReschedule(item.jobId))
+            }
             onSetSkipped={(item: AgendaItem, skipped: boolean) =>
               run(
                 desktop.lectures.setSkipped(
