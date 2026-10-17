@@ -79,16 +79,16 @@ async function setup(
   await store.open();
   const repository = new SqliteJobRepository(store);
   await repository.save(staleJob);
-  const replaceTimetableJobs = vi.fn((jobs: Job[]) =>
-    repository.replaceTimetableJobs(jobs),
+  const mergeTimetableJobs = vi.fn((jobs: Job[], prune: boolean) =>
+    repository.mergeTimetableJobs(jobs, prune),
   );
   const deps: TimetableImportDependencies = {
     fetcher,
     resolver: { resolveOnlineLecture: resolve },
-    jobs: { listAll: () => repository.listAll(), replaceTimetableJobs },
+    jobs: { mergeTimetableJobs },
     now: () => new Date('2026-10-01T00:00:00Z'),
   };
-  return { store, repository, deps, replaceTimetableJobs };
+  return { store, repository, deps, mergeTimetableJobs };
 }
 
 describe('runTimetableImport', () => {
@@ -166,16 +166,16 @@ describe('runTimetableImport', () => {
   });
 
   it('does not write on auth_required', async () => {
-    const { deps, replaceTimetableJobs, store } = await setup(async () => ({
+    const { deps, mergeTimetableJobs, store } = await setup(async () => ({
       status: 'auth_required',
     }));
     expect(await runTimetableImport(deps)).toEqual({ status: 'auth_required' });
-    expect(replaceTimetableJobs).not.toHaveBeenCalled();
+    expect(mergeTimetableJobs).not.toHaveBeenCalled();
     store.close();
   });
 
   it('does not write on failure', async () => {
-    const { deps, replaceTimetableJobs, store } = await setup(
+    const { deps, mergeTimetableJobs, store } = await setup(
       async () => resolved,
       {
         get: async () => {
@@ -188,12 +188,12 @@ describe('runTimetableImport', () => {
     if (result.status === 'failed') {
       expect(result.message).not.toContain('https://');
     }
-    expect(replaceTimetableJobs).not.toHaveBeenCalled();
+    expect(mergeTimetableJobs).not.toHaveBeenCalled();
     store.close();
   });
 
   it('does not write when no online lessons', async () => {
-    const { deps, replaceTimetableJobs, store } = await setup(
+    const { deps, mergeTimetableJobs, store } = await setup(
       async () => resolved,
       fetcherFor({
         '/faculties/fvs/groups/574-1?week_id=839':
@@ -202,7 +202,39 @@ describe('runTimetableImport', () => {
     );
     const result = await runTimetableImport(deps);
     expect(result).toMatchObject({ status: 'completed', lessons: 0 });
-    expect(replaceTimetableJobs).not.toHaveBeenCalled();
+    expect(mergeTimetableJobs).not.toHaveBeenCalled();
+    store.close();
+  });
+
+  it('keeps an edit saved while the MCP lookup is still running', async () => {
+    const reference: { current?: SqliteJobRepository } = {};
+    const {
+      deps,
+      repository: jobs,
+      store,
+    } = await setup(async () => {
+      await reference.current!.editImportedTime(
+        {
+          jobId: 'tt:fvs:574-1:22414',
+          date: '2026-09-30',
+          joinAt: '15:00',
+          leaveAt: '16:30',
+        },
+        new Date('2026-09-29T00:00:00Z'),
+      );
+      return resolved;
+    });
+    reference.current = jobs;
+    deps.now = () => new Date('2026-09-29T00:00:00Z');
+    await jobs.save({
+      ...staleJob,
+      id: 'tt:fvs:574-1:22414',
+      origin: { ...staleJob.origin!, discipline: 'РВП', sdoCourseId: '22414' },
+    });
+    expect((await runTimetableImport(deps)).status).toBe('completed');
+    expect((await jobs.getById('tt:fvs:574-1:22414'))?.schedule).toMatchObject({
+      occurrences: [{ date: '2026-09-30', joinAt: '15:00', edited: true }],
+    });
     store.close();
   });
 });

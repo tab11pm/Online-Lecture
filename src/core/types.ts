@@ -55,6 +55,8 @@ export interface Job {
   id: string;
   enabled: boolean;
   source?: JobSource;
+  title?: string;
+  rescheduledFrom?: { jobId: string; date: string };
   origin?: JobOrigin;
   schedule: Schedule;
   target: LectureTarget;

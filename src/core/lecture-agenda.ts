@@ -132,7 +132,13 @@ export function buildAgenda(
       entries.push({
         jobId: job.id,
         occurrenceId,
-        title: job.origin?.discipline ?? job.id,
+        title:
+          job.title ??
+          job.origin?.discipline ??
+          (job.source !== 'timetable' && job.target.type === 'search'
+            ? job.target.courseName
+            : undefined) ??
+          job.id,
         date: slot.date,
         joinAt: slot.joinAt,
         leaveAt: slot.leaveAt,

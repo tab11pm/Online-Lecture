@@ -30,6 +30,64 @@ function occurrencesOf(job: Job): ImportedOccurrence[] {
 }
 
 describe('mergeImportedJobs', () => {
+  it('suppresses only a discipline matching the manual title', () => {
+    const manual: Job = {
+      id: 'manual:physics',
+      enabled: true,
+      source: 'manual',
+      title: ' физика ',
+      schedule: {
+        type: 'once',
+        date: '2026-10-21',
+        joinAt: '13:15',
+        leaveAt: '14:50',
+        timezone: 'Asia/Tomsk',
+      },
+      target: {
+        type: 'direct',
+        activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=8',
+      },
+      browser: { headless: false },
+    };
+    const physics = base({
+      id: 'tt:physics',
+      origin: {
+        faculty: 'f',
+        group: 'g',
+        discipline: 'Физика',
+        sdoCourseId: '1',
+      },
+      schedule: {
+        type: 'imported',
+        timezone: 'Asia/Tomsk',
+        occurrences: [occ('2026-10-21')],
+      },
+    });
+    const chemistry = base({
+      id: 'tt:chemistry',
+      origin: {
+        faculty: 'f',
+        group: 'g',
+        discipline: 'Химия',
+        sdoCourseId: '2',
+      },
+      schedule: {
+        type: 'imported',
+        timezone: 'Asia/Tomsk',
+        occurrences: [occ('2026-10-21')],
+      },
+    });
+    const result = mergeImportedJobs([manual], [physics, chemistry]);
+    expect(
+      occurrencesOf(result.jobs.find((job) => job.id === 'tt:physics')!)[0]
+        ?.suppressed,
+    ).toBe(true);
+    expect(
+      occurrencesOf(result.jobs.find((job) => job.id === 'tt:chemistry')!)[0]
+        ?.suppressed,
+    ).not.toBe(true);
+  });
+
   it('adds new dates and removes vanished untouched dates', () => {
     const existing = [
       base({

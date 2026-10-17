@@ -42,6 +42,15 @@ export function createLectureAdapters(
   input: LectureAdaptersInput,
 ): LectureAdapters {
   return {
+    async resolveManualTarget(query) {
+      const client = input.createMcpClient();
+      try {
+        return await client.resolveOnlineLecture(query);
+      } finally {
+        await client.close().catch(() => undefined);
+      }
+    },
+
     async runImport(jobs, onProgress, browser) {
       let fetcher: PlaywrightFetcher | undefined;
       let resolver: SdoMcpClient | undefined;

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   CoreProcess,
+  LECTURE_MUTATION_TIMEOUT_MS,
   REQUEST_TIMEOUT_MS,
   type CoreChild,
 } from '../../src/main/core-process.js';
@@ -295,6 +296,46 @@ describe('CoreProcess request bridge', () => {
 });
 
 describe('CoreProcess lectures', () => {
+  it('times out a mutation and ignores a late reply', async () => {
+    vi.useFakeTimers();
+    try {
+      const { core, posted, emitMessage } = createProcess();
+      const pending = core.deleteLecture('manual:1');
+      const command = posted.at(-1)!;
+      if (!('requestId' in command)) throw new Error('No request ID');
+      const result = expect(pending).rejects.toThrow('Истекло время');
+      await vi.advanceTimersByTimeAsync(LECTURE_MUTATION_TIMEOUT_MS);
+      await result;
+      emitMessage({ type: 'lectures.commandResult', requestId: command.requestId, ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('resolves a schedule command once and rejects a redacted worker error', async () => {
+    const { core, posted, emitMessage } = createProcess();
+    const pending = core.resolveManualTarget('Алгебра');
+    const command = posted.at(-1)!;
+    expect(command).toMatchObject({ type: 'lectures.resolveManualTarget', query: 'Алгебра' });
+    if (!('requestId' in command)) throw new Error('No request ID');
+    emitMessage({ type: 'lectures.commandResult', requestId: command.requestId, ok: true, value: { status: 'not_found' } });
+    await expect(pending).resolves.toEqual({ status: 'not_found' });
+    const second = core.deleteLecture('manual:1');
+    const next = posted.at(-1)!;
+    if (!('requestId' in next)) throw new Error('No request ID');
+    emitMessage({ type: 'lectures.commandResult', requestId: next.requestId, ok: false, message: 'bad https://sdo.tusur.ru/x?token=secret' });
+    await expect(second).rejects.toThrow('[REDACTED_URL]');
+  });
+
+  it('rejects all outstanding lecture requests when the worker exits', async () => {
+    const { core, emitExit } = createProcess();
+    const a = core.resolveManualTarget('Алгебра');
+    const b = core.deleteLecture('manual:1');
+    emitExit(1);
+    await expect(a).rejects.toThrow('завершился');
+    await expect(b).rejects.toThrow('завершился');
+  });
+
   afterEach(() => {
     vi.useRealTimers();
   });

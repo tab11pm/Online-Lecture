@@ -101,7 +101,7 @@ function occurrencesOf(job: Job): ImportedOccurrence[] {
 function disciplineOf(job: Job): string {
   const courseName =
     job.target.type === 'search' ? job.target.courseName : undefined;
-  return job.origin?.discipline ?? courseName ?? '';
+  return job.title?.trim() || job.origin?.discipline || courseName || '';
 }
 
 interface OncePair {
@@ -120,7 +120,9 @@ function disciplineMatches(
   pairDiscipline: string,
   discipline: string,
 ): boolean {
-  return pairDiscipline === '' || pairDiscipline === discipline;
+  const normalizedPair = pairDiscipline.trim().toLocaleLowerCase('ru');
+  const normalizedDiscipline = discipline.trim().toLocaleLowerCase('ru');
+  return normalizedPair === '' || normalizedPair === normalizedDiscipline;
 }
 
 function collectOncePairs(jobs: Job[]): OncePair[] {
@@ -254,7 +256,16 @@ function mergeMatchedJob(
     );
 
     if (prior?.edited) {
-      occurrences.push({ ...prior });
+      const editedDeduped = applyManualDedup(
+        prior,
+        discipline,
+        oncePairs,
+        weeklyPairs,
+      );
+      occurrences.push({
+        ...prior,
+        ...(editedDeduped.suppressed ? { suppressed: true } : {}),
+      });
       summary.preservedEdits += 1;
     } else if (prior?.suppressed) {
       occurrences.push({ ...deduped, suppressed: true });
@@ -268,7 +279,16 @@ function mergeMatchedJob(
       continue;
     }
     if (prior.edited) {
-      occurrences.push({ ...prior });
+      const deduped = applyManualDedup(
+        prior,
+        discipline,
+        oncePairs,
+        weeklyPairs,
+      );
+      occurrences.push({
+        ...prior,
+        ...(deduped.suppressed ? { suppressed: true } : {}),
+      });
       summary.preservedEdits += 1;
     } else if (prior.suppressed) {
       occurrences.push({ ...prior });

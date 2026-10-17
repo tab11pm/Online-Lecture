@@ -2,6 +2,7 @@ import type { LoginInput } from './ipc-contract.js';
 import type { LoginOutcome, OnboardingState } from './onboarding.js';
 import type { BrowserChoice } from './browser-choice.js';
 import type { LecturesView } from './lectures.js';
+import type { EditImportedTimeInput, ManualScheduleInput, RescheduleInput } from '@core/core/schedule-editing.js';
 
 export type MainCommand =
   | { type: 'onboarding.login'; input: LoginInput }
@@ -19,6 +20,12 @@ export type MainCommand =
       skipped: boolean;
     }
   | { type: 'lectures.setShowWindow'; show: boolean }
+  | { type: 'lectures.resolveManualTarget'; requestId: string; query: string }
+  | { type: 'lectures.saveManual'; requestId: string; input: { candidateId: string; title: string; schedule: ManualScheduleInput } }
+  | { type: 'lectures.editImportedTime'; requestId: string; input: EditImportedTimeInput }
+  | { type: 'lectures.reschedule'; requestId: string; input: RescheduleInput }
+  | { type: 'lectures.cancelReschedule'; requestId: string; jobId: string }
+  | { type: 'lectures.deleteLecture'; requestId: string; jobId: string; date?: string }
   | { type: 'system.resumed' }
   | { type: 'app.shutdown' };
 
@@ -27,5 +34,7 @@ export type HostEvent =
   | { type: 'onboarding.changed'; state: OnboardingState }
   | { type: 'onboarding.loginResult'; outcome: LoginOutcome }
   | { type: 'lectures.changed'; view: LecturesView }
+  | { type: 'lectures.commandResult'; requestId: string; ok: true; value?: unknown }
+  | { type: 'lectures.commandResult'; requestId: string; ok: false; message: string }
   | { type: 'host.shutdownComplete' }
   | { type: 'host.error'; message: string };

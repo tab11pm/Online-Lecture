@@ -2,7 +2,7 @@ import type { OnlineLectureResolver } from '../core/types.js';
 import { redactSensitiveText } from '../core/redaction.js';
 import type { SqliteJobRepository } from '../persistence/job-repository.js';
 import type { HttpFetcher } from './http-fetcher.js';
-import { mergeImportedJobs, type MergeSummary } from './import-merger.js';
+import type { MergeSummary } from './import-merger.js';
 import { groupOnlineDisciplines } from './online-selector.js';
 import { TimetableClient } from './timetable-client.js';
 import { buildImportedJobs } from './timetable-importer.js';
@@ -15,7 +15,7 @@ export type ImportStage =
 export interface TimetableImportDependencies {
   fetcher: HttpFetcher;
   resolver: OnlineLectureResolver;
-  jobs: Pick<SqliteJobRepository, 'listAll' | 'replaceTimetableJobs'>;
+  jobs: Pick<SqliteJobRepository, 'mergeTimetableJobs'>;
   now(): Date;
   group?: { faculty: string; group: string };
 }
@@ -91,13 +91,7 @@ export async function runTimetableImport(
       unmappedLessons.length === 0 &&
       built.unresolved.length === 0 &&
       built.ambiguous.length === 0;
-    const existing = await deps.jobs.listAll();
-    const { jobs, summary } = mergeImportedJobs(existing, built.jobs, {
-      prune: complete,
-    });
-    await deps.jobs.replaceTimetableJobs(
-      jobs.filter((job) => job.source === 'timetable'),
-    );
+    const summary = await deps.jobs.mergeTimetableJobs(built.jobs, complete);
 
     return {
       status: 'completed',

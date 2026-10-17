@@ -1,6 +1,8 @@
 import type { LoginOutcome, OnboardingState } from './onboarding.js';
 import type { LecturesView } from './lectures.js';
 import type { BrowserChoice, BrowserView } from './browser-choice.js';
+import type { EditImportedTimeInput, ManualScheduleInput, RescheduleInput } from '@core/core/schedule-editing.js';
+import type { ManualTargetLookup } from './lectures.js';
 
 export interface AppInfo {
   version: string;
@@ -45,6 +47,12 @@ export const CHANNELS = {
     importNow: 'lectures:importNow',
     stopCurrent: 'lectures:stopCurrent',
     setSkipped: 'lectures:setSkipped',
+    resolveManualTarget: 'lectures:resolveManualTarget',
+    saveManual: 'lectures:saveManual',
+    editImportedTime: 'lectures:editImportedTime',
+    reschedule: 'lectures:reschedule',
+    cancelReschedule: 'lectures:cancelReschedule',
+    deleteLecture: 'lectures:deleteLecture',
     changed: 'lectures:changed',
   },
   core: {
@@ -84,6 +92,12 @@ export interface DesktopApi {
       occurrenceId: string,
       skipped: boolean,
     ): Promise<void>;
+    resolveManualTarget(query: string): Promise<ManualTargetLookup>;
+    saveManual(input: { candidateId: string; title: string; schedule: ManualScheduleInput }): Promise<void>;
+    editImportedTime(input: EditImportedTimeInput): Promise<void>;
+    reschedule(input: RescheduleInput): Promise<string>;
+    cancelReschedule(jobId: string): Promise<void>;
+    deleteLecture(jobId: string, date?: string): Promise<void>;
     onChanged(listener: (view: LecturesView) => void): () => void;
   };
   core: {

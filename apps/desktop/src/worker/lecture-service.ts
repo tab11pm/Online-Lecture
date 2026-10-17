@@ -1,10 +1,18 @@
 import { existsSync } from 'node:fs';
 import type { RunResult } from '@core/core/job-runner.js';
+import { randomUUID } from 'node:crypto';
+import { DateTime } from 'luxon';
+import {
+  SCHEDULE_TIMEZONE,
+  type EditImportedTimeInput,
+  type ManualScheduleInput,
+  type RescheduleInput,
+} from '@core/core/schedule-editing.js';
 import { buildAgenda, type AgendaEntry } from '@core/core/lecture-agenda.js';
 import { setOccurrenceSuppressed } from '@core/core/occurrence-suppression.js';
 import { redactSensitiveText } from '@core/core/redaction.js';
 import { Scheduler } from '@core/core/scheduler.js';
-import type { Job, Run } from '@core/core/types.js';
+import type { Job, OnlineLectureResolution, Run } from '@core/core/types.js';
 import { SqliteJobRepository } from '@core/persistence/job-repository.js';
 import { SqliteMetaRepository } from '@core/persistence/meta-repository.js';
 import { SqliteRunRepository } from '@core/persistence/run-repository.js';
@@ -21,10 +29,16 @@ import type {
 } from '../shared/lectures.js';
 import type { CoreLog } from './core-log.js';
 import { ImportScheduler } from './import-scheduler.js';
+import { ManualTargetStore, parseManualQuery } from './manual-targets.js';
+import type { ManualTargetLookup } from '../shared/lectures.js';
 import { SchedulerLoop } from './scheduler-loop.js';
 import { SingleLectureRunner } from './single-lecture-runner.js';
 
 export interface LectureAdapters {
+  resolveManualTarget(query: {
+    courseUrl?: string;
+    courseQuery?: string;
+  }): Promise<OnlineLectureResolution>;
   /** `browser` carries the latest options so the import uses the chosen channel. */
   runImport(
     jobs: SqliteJobRepository,
@@ -93,6 +107,7 @@ interface Repositories {
 
 /** Owns the lecture database, the scheduler loop, timetable imports and the one lecture runner. */
 export class LectureService {
+  private readonly manualTargets = new ManualTargetStore();
   private repos: Repositories | undefined;
   private active = false;
   /** Title of the running occurrence, kept in case an import removes its job. */
@@ -157,7 +172,7 @@ export class LectureService {
     const runner: SingleLectureRunner = new SingleLectureRunner({
       runJob: async (jobId, occurrenceId, signal) => {
         const job = await jobs.getById(jobId);
-        const title = job?.origin?.discipline ?? jobId;
+        const title = job?.title ?? job?.origin?.discipline ?? jobId;
         this.launched = { occurrenceId, title };
         const result = await this.deps.adapters.runJob(
           jobs,
@@ -217,6 +232,7 @@ export class LectureService {
 
   getView(): LecturesView {
     const now = this.deps.now();
+    const jobsById = new Map(this.snapshot.jobs.map((job) => [job.id, job]));
     const agenda = buildAgenda(
       this.snapshot.jobs,
       this.snapshot.runs,
@@ -224,7 +240,9 @@ export class LectureService {
       AGENDA_DAYS,
     );
     const view: LecturesView = {
-      agenda: agenda.entries.map(toItem),
+      agenda: agenda.entries.map((entry) =>
+        toItem(entry, jobsById.get(entry.jobId), now),
+      ),
       import: this.repos?.imports.view ?? { status: 'idle' },
     };
     const current = agenda.current;
@@ -240,7 +258,8 @@ export class LectureService {
       const orphan = this.orphanedCurrent();
       if (orphan) view.current = orphan;
     }
-    if (agenda.next) view.next = toItem(agenda.next);
+    if (agenda.next)
+      view.next = toItem(agenda.next, jobsById.get(agenda.next.jobId), now);
     const last = agenda.lastRun;
     if (last?.run) {
       view.lastRun = {
@@ -257,6 +276,85 @@ export class LectureService {
 
   async importNow(): Promise<void> {
     await this.requireRepos().imports.request('manual');
+  }
+
+  async resolveManualTarget(query: string): Promise<ManualTargetLookup> {
+    this.requireRepos();
+    const input = parseManualQuery(query);
+    this.manualTargets.clear();
+    const resolution = await this.deps.adapters.resolveManualTarget(input);
+    return this.manualTargets.remember(resolution, query);
+  }
+
+  async saveManual(input: {
+    candidateId: string;
+    title: string;
+    schedule: ManualScheduleInput;
+  }): Promise<void> {
+    const repos = this.requireRepos();
+    const target = this.manualTargets.get(input.candidateId);
+    if (!target) throw new Error('Select a confirmed SDO activity');
+    const title = input.title.trim();
+    if (!title) throw new Error('Enter a lecture title');
+    const job: Job = {
+      id: `manual:${randomUUID()}`,
+      enabled: true,
+      source: 'manual',
+      title,
+      schedule: { ...input.schedule, timezone: SCHEDULE_TIMEZONE },
+      target: { type: 'direct', activityUrl: target.activityUrl },
+      browser: { headless: this.browser.headless },
+    };
+    await repos.jobs.saveManual(job, this.deps.now());
+    this.manualTargets.consume(input.candidateId);
+    await this.publish();
+    if (this.active) void repos.loop.tick();
+  }
+
+  async editImportedTime(input: EditImportedTimeInput): Promise<void> {
+    await this.requireRepos().jobs.editImportedTime(input, this.deps.now());
+    await this.publish();
+    if (this.active) void this.repos?.loop.tick();
+  }
+
+  async reschedule(input: RescheduleInput): Promise<string> {
+    const id = await this.requireRepos().jobs.reschedule(
+      input,
+      this.deps.now(),
+    );
+    await this.publish();
+    if (this.active) void this.repos?.loop.tick();
+    return id;
+  }
+
+  async cancelReschedule(jobId: string): Promise<void> {
+    await this.requireRepos().jobs.cancelReschedule(jobId, this.deps.now());
+    await this.publish();
+    if (this.active) void this.repos?.loop.tick();
+  }
+
+  async deleteLecture(jobId: string, date?: string): Promise<void> {
+    const repos = this.requireRepos();
+    const job = await repos.jobs.getById(jobId);
+    if (!job) throw new Error('Lecture not found');
+    if (job.source === 'timetable') {
+      if (job.schedule.type !== 'imported' || !date)
+        throw new Error('Imported occurrence not found');
+      const entry = job.schedule.occurrences.find((item) => item.date === date);
+      if (!entry) throw new Error('Imported occurrence not found');
+      const start = DateTime.fromISO(`${date}T${entry.joinAt}`, {
+        zone: job.schedule.timezone,
+      });
+      if (!start.isValid) throw new Error('Imported occurrence not found');
+      await this.setSkipped(jobId, `${jobId}:${start.toISO()}`, true);
+      return;
+    }
+    if (date || job.rescheduledFrom)
+      throw new Error('Manual lecture not found');
+    const active = repos.runner.active;
+    if (active?.jobId === jobId) await repos.runner.stop(active, 'manual');
+    await repos.jobs.deleteManual(jobId);
+    await this.publish();
   }
 
   async stopCurrent(): Promise<void> {
@@ -302,6 +400,7 @@ export class LectureService {
   }
 
   async shutdown(timeoutMs: number): Promise<void> {
+    this.manualTargets.clear();
     this.deactivate();
     const repos = this.repos;
     if (!repos) return;
@@ -363,11 +462,25 @@ export class LectureService {
   }
 }
 
-function toItem(entry: AgendaEntry): AgendaItem {
+function toItem(
+  entry: AgendaEntry,
+  job: Job | undefined,
+  now: Date,
+): AgendaItem {
+  const source = job?.source === 'timetable' ? 'timetable' : 'manual';
+  const editable = Boolean(
+    job &&
+    !entry.skipped &&
+    DateTime.fromISO(entry.joinAtIso).toMillis() > now.getTime() &&
+    (!entry.run || entry.run.status === 'scheduled'),
+  );
   return {
     jobId: entry.jobId,
     occurrenceId: entry.occurrenceId,
     title: entry.title,
+    source,
+    editable,
+    ...(job?.rescheduledFrom ? { rescheduledFrom: job.rescheduledFrom } : {}),
     date: entry.date,
     joinAt: entry.joinAt,
     leaveAt: entry.leaveAt,

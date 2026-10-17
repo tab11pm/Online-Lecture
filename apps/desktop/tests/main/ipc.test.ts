@@ -40,6 +40,14 @@ function handlersWith(overrides: IpcHandlerMap = {}): IpcHandlerMap {
 }
 
 describe('registerIpc', () => {
+  it('rejects malformed schedule inputs before invoking a handler', async () => {
+    const { ipcMain, invoke } = fakeIpcMain();
+    const save = vi.fn();
+    registerIpc({ ipcMain, handlers: handlersWith({ [CHANNELS.lectures.saveManual]: save }) });
+    await expect(invoke(CHANNELS.lectures.saveManual, { candidateId: 'x', title: 'X', schedule: { type: 'weekly', days: [], joinAt: '12:00', leaveAt: '13:00' } })).rejects.toThrow();
+    expect(save).not.toHaveBeenCalled();
+  });
+
   it('exposes browser selection and installation through narrow IPC channels', async () => {
     const { ipcMain, invoke } = fakeIpcMain();
     const setBrowser = vi.fn().mockResolvedValue({ choice: 'edge' });
