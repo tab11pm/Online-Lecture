@@ -5,6 +5,7 @@ import type { Job, Run } from '@core/core/types.js';
 import type { LectureAdapters } from './lecture-service.js';
 
 const FAKE_JOB_ID = 'tt:fake:demo:1';
+const FUTURE_JOB_ID = 'tt:fake:future:2';
 const ZONE = 'Asia/Krasnoyarsk';
 
 function demoJob(now: Date): Job {
@@ -36,6 +37,22 @@ function demoJob(now: Date): Job {
       activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=1',
     },
     browser: { headless: true },
+  };
+}
+
+function futureJob(now: Date): Job {
+  const date =
+    DateTime.fromJSDate(now, { zone: ZONE }).plus({ days: 2 }).toISODate() ??
+    '';
+  return {
+    ...demoJob(now),
+    id: FUTURE_JOB_ID,
+    title: 'Будущая импортированная пара',
+    schedule: {
+      type: 'imported',
+      timezone: ZONE,
+      occurrences: [{ date, joinAt: '12:00', leaveAt: '13:00' }],
+    },
   };
 }
 
@@ -79,7 +96,12 @@ export function createFakeLectureAdapters(now: () => Date): LectureAdapters {
       const current =
         existing?.schedule.type === 'imported' &&
         existing.schedule.occurrences.some((entry) => entry.date === today);
-      if (!current) await jobs.replaceTimetableJobs([demoJob(now())]);
+      if (!current)
+        await jobs.replaceTimetableJobs(
+          process.env.ONLINE_LECTURE_FAKE_EDIT_SCENARIO === '1'
+            ? [demoJob(now()), futureJob(now())]
+            : [demoJob(now())],
+        );
       return {
         status: 'completed',
         faculty: 'fake',

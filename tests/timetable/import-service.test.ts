@@ -207,13 +207,13 @@ describe('runTimetableImport', () => {
   });
 
   it('keeps an edit saved while the MCP lookup is still running', async () => {
-    let repository: SqliteJobRepository | undefined;
+    const reference: { current?: SqliteJobRepository } = {};
     const {
       deps,
       repository: jobs,
       store,
     } = await setup(async () => {
-      await repository!.editImportedTime(
+      await reference.current!.editImportedTime(
         {
           jobId: 'tt:fvs:574-1:22414',
           date: '2026-09-30',
@@ -224,7 +224,7 @@ describe('runTimetableImport', () => {
       );
       return resolved;
     });
-    repository = jobs;
+    reference.current = jobs;
     deps.now = () => new Date('2026-09-29T00:00:00Z');
     await jobs.save({
       ...staleJob,
