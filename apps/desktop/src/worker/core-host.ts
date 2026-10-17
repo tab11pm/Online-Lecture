@@ -269,9 +269,11 @@ export class CoreHost {
     }
   }
 
-  private async handleLectureCommand(command: Extract<MainCommand, { requestId: string }>): Promise<void> {
+  private async handleLectureCommand(
+    command: Extract<MainCommand, { requestId: string }>,
+  ): Promise<void> {
     try {
-      if (!this.sessionReady || !await this.lecturesReady || !this.lectures)
+      if (!this.sessionReady || !(await this.lecturesReady) || !this.lectures)
         throw new Error(SESSION_EXPIRED_MESSAGE);
       let value: unknown;
       switch (command.type) {
@@ -294,9 +296,19 @@ export class CoreHost {
           await this.lectures.deleteLecture(command.jobId, command.date);
           break;
       }
-      this.transport.post({ type: 'lectures.commandResult', requestId: command.requestId, ok: true, value });
+      this.transport.post({
+        type: 'lectures.commandResult',
+        requestId: command.requestId,
+        ok: true,
+        value,
+      });
     } catch (error) {
-      this.transport.post({ type: 'lectures.commandResult', requestId: command.requestId, ok: false, message: localizeHostError(redactSensitiveText(errorMessage(error))) });
+      this.transport.post({
+        type: 'lectures.commandResult',
+        requestId: command.requestId,
+        ok: false,
+        message: localizeHostError(redactSensitiveText(errorMessage(error))),
+      });
     }
   }
 
@@ -353,6 +365,13 @@ const HOST_ERROR_TRANSLATIONS: ReadonlyArray<readonly [string, string]> = [
   ],
   ['Lecture not found', 'Пара не найдена. Обновите расписание.'],
   ['Occurrence not found', 'Пара не найдена. Обновите расписание.'],
+  ['Lecture slot is already occupied', 'На это время уже есть такая пара.'],
+  ['Select a confirmed SDO activity', 'Сначала выберите активность BBB.'],
+  ['Enter a lecture title', 'Введите название пары.'],
+  ['Lecture entry must be in the future', 'Время входа должно быть в будущем.'],
+  ['Lecture entry has already started', 'Пара уже началась.'],
+  ['Lecture exit must be after entry', 'Время выхода должно быть позже входа.'],
+  ['Invalid lecture date or time', 'Проверьте дату и время пары.'],
 ];
 
 /** Translates the worker's known internal English errors for the UI. */

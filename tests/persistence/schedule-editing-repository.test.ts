@@ -161,6 +161,59 @@ describe('SqliteJobRepository schedule editing', () => {
     store.close();
   });
 
+  it('rejects a move into a matching active imported slot', async () => {
+    const { store, jobs } = await setup();
+    await jobs.save(imported());
+    const destination = imported('tt:other');
+    if (destination.schedule.type !== 'imported')
+      throw new Error('Expected imported');
+    destination.schedule.occurrences[0] = {
+      date: '2026-10-24',
+      joinAt: '12:00',
+      leaveAt: '13:35',
+    };
+    await jobs.save(destination);
+    await expect(
+      jobs.reschedule(
+        {
+          jobId: 'tt:physics',
+          date: '2026-10-21',
+          newDate: '2026-10-24',
+          newJoinAt: '12:00',
+          newLeaveAt: '13:35',
+        },
+        NOW,
+      ),
+    ).rejects.toThrow();
+    const source = await jobs.getById('tt:physics');
+    expect(
+      source?.schedule.type === 'imported' &&
+        source.schedule.occurrences[0]?.suppressed,
+    ).toBeFalsy();
+    store.close();
+  });
+
+  it('rejects cancellation that would collide with another manual pair', async () => {
+    const { store, jobs } = await setup();
+    await jobs.save(imported());
+    const moved = await jobs.reschedule(
+      {
+        jobId: 'tt:physics',
+        date: '2026-10-21',
+        newDate: '2026-10-24',
+        newJoinAt: '12:00',
+        newLeaveAt: '13:35',
+      },
+      NOW,
+    );
+    await jobs.saveManual(manual(), NOW);
+    await expect(jobs.cancelReschedule(moved, NOW)).rejects.toThrow();
+    expect((await jobs.getById('tt:physics'))?.schedule).toMatchObject({
+      occurrences: [{ suppressed: true }],
+    });
+    store.close();
+  });
+
   it('saves a manual job and suppresses only an imported duplicate', async () => {
     const { store, jobs } = await setup();
     await jobs.save(imported());
@@ -183,12 +236,47 @@ describe('SqliteJobRepository schedule editing', () => {
     const source = imported();
     if (source.schedule.type !== 'imported')
       throw new Error('Expected imported schedule');
-    source.schedule.occurrences[0]!.edited = true;
+    source.schedule.occurrences[0] = {
+      ...source.schedule.occurrences[0]!,
+      joinAt: '12:00',
+      leaveAt: '13:35',
+      edited: true,
+    };
     await jobs.save(source);
-    await jobs.saveManual(manual(), NOW);
+    const sameTime = manual();
+    if (sameTime.schedule.type !== 'once') throw new Error('Expected once');
+    sameTime.schedule.joinAt = '12:00';
+    sameTime.schedule.leaveAt = '13:35';
+    await jobs.saveManual(sameTime, NOW);
+    await jobs.mergeTimetableJobs([imported()], true);
     expect((await jobs.getById('tt:physics'))?.schedule).toMatchObject({
       occurrences: [{ edited: true, suppressed: true }],
     });
+    store.close();
+  });
+
+  it('does not suppress an edited time merely because a manual pair matches the original time', async () => {
+    const { store, jobs } = await setup();
+    const source = imported();
+    if (source.schedule.type !== 'imported')
+      throw new Error('Expected imported schedule');
+    source.schedule.occurrences[0] = {
+      ...source.schedule.occurrences[0]!,
+      joinAt: '12:00',
+      leaveAt: '13:35',
+      edited: true,
+    };
+    await jobs.save(source);
+    await jobs.saveManual(manual(), NOW);
+    await jobs.mergeTimetableJobs([imported()], true);
+    const saved = await jobs.getById('tt:physics');
+    expect(
+      saved?.schedule.type === 'imported' && saved.schedule.occurrences[0],
+    ).toMatchObject({ joinAt: '12:00', edited: true });
+    expect(
+      saved?.schedule.type === 'imported' &&
+        saved.schedule.occurrences[0]?.suppressed,
+    ).toBeFalsy();
     store.close();
   });
 

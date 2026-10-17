@@ -134,6 +134,19 @@ export class SqliteJobRepository implements JobRepository {
         if (duplicate) throw new Error('Occurrence already rescheduled');
         const id = `manual:${randomUUID()}`;
         const result = makeRescheduledJob(job, input, id);
+        if (
+          this.readAll().some(
+            (item) =>
+              item.id !== job.id &&
+              this.collidesAt(
+                item,
+                input.newDate,
+                input.newJoinAt,
+                result.replacement.title ?? '',
+              ),
+          )
+        )
+          throw new Error('Lecture slot is already occupied');
         this.writeJob(result.source);
         this.writeJob(result.replacement);
         return id;
@@ -169,6 +182,16 @@ export class SqliteJobRepository implements JobRepository {
           replacement.schedule.joinAt,
           now,
         );
+        const title = source.title ?? source.origin?.discipline ?? '';
+        if (
+          this.readAll().some(
+            (item) =>
+              item.id !== source.id &&
+              item.id !== replacementJobId &&
+              this.collidesAt(item, entry.date, entry.joinAt, title),
+          )
+        )
+          throw new Error('Lecture slot is already occupied');
         const edited: Job = {
           ...source,
           schedule: {
@@ -363,6 +386,40 @@ export class SqliteJobRepository implements JobRepository {
     const names = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
     return weekly.days.includes(
       names[weekday - 1] as (typeof weekly.days)[number],
+    );
+  }
+
+  private collidesAt(
+    job: Job,
+    date: string,
+    joinAt: string,
+    title: string,
+  ): boolean {
+    if (!job.enabled) return false;
+    const jobTitle =
+      job.title ??
+      job.origin?.discipline ??
+      (job.target.type === 'search' ? job.target.courseName : undefined) ??
+      '';
+    if (
+      jobTitle.trim().toLocaleLowerCase('ru') !==
+      title.trim().toLocaleLowerCase('ru')
+    )
+      return false;
+    if (job.schedule.type === 'imported')
+      return job.schedule.occurrences.some(
+        (entry) =>
+          entry.date === date && entry.joinAt === joinAt && !entry.suppressed,
+      );
+    if (job.schedule.joinAt !== joinAt) return false;
+    if (job.schedule.type === 'once') return job.schedule.date === date;
+    const weekday = DateTime.fromISO(date, {
+      zone: job.schedule.timezone,
+    }).weekday;
+    return job.schedule.days.includes(
+      (['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'] as const)[
+        weekday - 1
+      ]!,
     );
   }
 }

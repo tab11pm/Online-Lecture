@@ -34,7 +34,10 @@ import { SchedulerLoop } from './scheduler-loop.js';
 import { SingleLectureRunner } from './single-lecture-runner.js';
 
 export interface LectureAdapters {
-  resolveManualTarget(query: { courseUrl?: string; courseQuery?: string }): Promise<OnlineLectureResolution>;
+  resolveManualTarget(query: {
+    courseUrl?: string;
+    courseQuery?: string;
+  }): Promise<OnlineLectureResolution>;
   /** `browser` carries the latest options so the import uses the chosen channel. */
   runImport(
     jobs: SqliteJobRepository,
@@ -224,7 +227,9 @@ export class LectureService {
       AGENDA_DAYS,
     );
     const view: LecturesView = {
-      agenda: agenda.entries.map((entry) => toItem(entry, jobsById.get(entry.jobId), now)),
+      agenda: agenda.entries.map((entry) =>
+        toItem(entry, jobsById.get(entry.jobId), now),
+      ),
       import: this.repos?.imports.view ?? { status: 'idle' },
     };
     const current = agenda.current;
@@ -240,7 +245,8 @@ export class LectureService {
       const orphan = this.orphanedCurrent();
       if (orphan) view.current = orphan;
     }
-    if (agenda.next) view.next = toItem(agenda.next, jobsById.get(agenda.next.jobId), now);
+    if (agenda.next)
+      view.next = toItem(agenda.next, jobsById.get(agenda.next.jobId), now);
     const last = agenda.lastRun;
     if (last?.run) {
       view.lastRun = {
@@ -299,7 +305,10 @@ export class LectureService {
   }
 
   async reschedule(input: RescheduleInput): Promise<string> {
-    const id = await this.requireRepos().jobs.reschedule(input, this.deps.now());
+    const id = await this.requireRepos().jobs.reschedule(
+      input,
+      this.deps.now(),
+    );
     await this.publish();
     if (this.active) void this.repos?.loop.tick();
     return id;
@@ -327,7 +336,8 @@ export class LectureService {
       await this.setSkipped(jobId, `${jobId}:${start.toISO()}`, true);
       return;
     }
-    if (date || job.rescheduledFrom) throw new Error('Manual lecture not found');
+    if (date || job.rescheduledFrom)
+      throw new Error('Manual lecture not found');
     const active = repos.runner.active;
     if (active?.jobId === jobId) await repos.runner.stop(active, 'manual');
     await repos.jobs.deleteManual(jobId);
@@ -439,8 +449,12 @@ export class LectureService {
   }
 }
 
-function toItem(entry: AgendaEntry, job: Job | undefined, now: Date): AgendaItem {
-  const source = job?.source === 'manual' ? 'manual' : 'timetable';
+function toItem(
+  entry: AgendaEntry,
+  job: Job | undefined,
+  now: Date,
+): AgendaItem {
+  const source = job?.source === 'timetable' ? 'timetable' : 'manual';
   const editable = Boolean(
     job &&
     !entry.skipped &&

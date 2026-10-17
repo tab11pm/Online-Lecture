@@ -256,9 +256,15 @@ function mergeMatchedJob(
     );
 
     if (prior?.edited) {
+      const editedDeduped = applyManualDedup(
+        prior,
+        discipline,
+        oncePairs,
+        weeklyPairs,
+      );
       occurrences.push({
         ...prior,
-        ...(deduped.suppressed ? { suppressed: true } : {}),
+        ...(editedDeduped.suppressed ? { suppressed: true } : {}),
       });
       summary.preservedEdits += 1;
     } else if (prior?.suppressed) {
