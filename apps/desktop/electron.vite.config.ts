@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react';
 import { defineConfig } from 'electron-vite';
 
 const coreSrc = fileURLToPath(new URL('../../src', import.meta.url));
-const external = ['electron', 'better-sqlite3', 'playwright'];
+const external = ['electron', 'better-sqlite3', 'playwright', 'jsdom'];
 
 export default defineConfig({
   main: {

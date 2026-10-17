@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -137,6 +138,22 @@ async function connected(last: () => LecturesView | undefined) {
 }
 
 describe('LectureService', () => {
+  it('explains a missing Electron SQLite build without touching the database', async () => {
+    const service = new LectureService({
+      databasePath: databasePath(),
+      sqliteBinding: join(dir, 'native', 'better_sqlite3.node'),
+      adapters: createFakeLectureAdapters(() => clock),
+      now: () => clock,
+      onView: () => undefined,
+      onAuthRequired: () => undefined,
+    });
+
+    await expect(service.open()).rejects.toThrow(
+      'Модуль базы данных для приложения не собран. Выполните: npm run build:native -w @online-lecture/desktop',
+    );
+    expect(existsSync(databasePath())).toBe(false);
+  });
+
   it('fails interrupted runs on open', async () => {
     await withStore(async ({ runs }) => {
       const run: Run = {

@@ -3,6 +3,8 @@ node_modules/
 dist/
 apps/*/out/
 apps/*/dist/
+# better-sqlite3 built for Electron (npm run build:native -w @online-lecture/desktop)
+apps/desktop/native/
 coverage/
 .data/
 

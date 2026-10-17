@@ -18,6 +18,7 @@ import { ChromiumInstaller } from './chromium-installer.js';
 import { registerIpc } from './ipc.js';
 import {
   applyDesktopServerDefaults,
+  applySqliteBindingDefault,
   findWorkspaceRoot,
   loadEnvFiles,
 } from './load-env.js';
@@ -104,6 +105,7 @@ void app.whenReady().then(async () => {
     process.platform,
     initialBrowserChoice,
   );
+  applySqliteBindingDefault(process.env, app.getAppPath());
   applyAutostart(app, settings.autostart);
 
   core = new CoreProcess(

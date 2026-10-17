@@ -1,4 +1,4 @@
-import { access, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -70,5 +70,34 @@ describe('SqliteStore', () => {
     expect(result.diagnosticPath).toContain('.corrupt-');
     expect(recovered.migrationVersion()).toBe(1);
     recovered.close();
+  });
+
+  it('loads SQLite through the given native binding', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    temporaryDirectories.push(directory);
+    const store = new SqliteStore(join(directory, 'lectures.sqlite'), {
+      nativeBinding: join(directory, 'missing.node'),
+    });
+
+    await expect(store.open()).rejects.toThrow();
+  });
+
+  it('keeps the database file when the SQLite module cannot load', async () => {
+    const directory = await mkdtemp(join(tmpdir(), 'online-lecture-'));
+    temporaryDirectories.push(directory);
+    const databasePath = join(directory, 'lectures.sqlite');
+    const initial = new SqliteStore(databasePath);
+    await initial.open();
+    initial.close();
+
+    const store = new SqliteStore(databasePath, {
+      nativeBinding: join(directory, 'missing.node'),
+    });
+
+    await expect(store.openWithRecovery()).rejects.toThrow();
+    await expect(access(databasePath)).resolves.toBeUndefined();
+    expect(
+      (await readdir(directory)).filter((name) => name.includes('.corrupt-')),
+    ).toEqual([]);
   });
 });
