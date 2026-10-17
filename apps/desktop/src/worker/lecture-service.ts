@@ -1,8 +1,11 @@
 import type { RunResult } from '@core/core/job-runner.js';
 import { randomUUID } from 'node:crypto';
+import { DateTime } from 'luxon';
 import {
   SCHEDULE_TIMEZONE,
+  type EditImportedTimeInput,
   type ManualScheduleInput,
+  type RescheduleInput,
 } from '@core/core/schedule-editing.js';
 import { buildAgenda, type AgendaEntry } from '@core/core/lecture-agenda.js';
 import { setOccurrenceSuppressed } from '@core/core/occurrence-suppression.js';
@@ -152,7 +155,7 @@ export class LectureService {
     const runner: SingleLectureRunner = new SingleLectureRunner({
       runJob: async (jobId, occurrenceId, signal) => {
         const job = await jobs.getById(jobId);
-        const title = job?.origin?.discipline ?? jobId;
+        const title = job?.title ?? job?.origin?.discipline ?? jobId;
         this.launched = { occurrenceId, title };
         const result = await this.deps.adapters.runJob(
           jobs,
@@ -212,6 +215,7 @@ export class LectureService {
 
   getView(): LecturesView {
     const now = this.deps.now();
+    const jobsById = new Map(this.snapshot.jobs.map((job) => [job.id, job]));
     const agenda = buildAgenda(
       this.snapshot.jobs,
       this.snapshot.runs,
@@ -219,7 +223,7 @@ export class LectureService {
       AGENDA_DAYS,
     );
     const view: LecturesView = {
-      agenda: agenda.entries.map(toItem),
+      agenda: agenda.entries.map((entry) => toItem(entry, jobsById.get(entry.jobId), now)),
       import: this.repos?.imports.view ?? { status: 'idle' },
     };
     const current = agenda.current;
@@ -235,7 +239,7 @@ export class LectureService {
       const orphan = this.orphanedCurrent();
       if (orphan) view.current = orphan;
     }
-    if (agenda.next) view.next = toItem(agenda.next);
+    if (agenda.next) view.next = toItem(agenda.next, jobsById.get(agenda.next.jobId), now);
     const last = agenda.lastRun;
     if (last?.run) {
       view.lastRun = {
@@ -285,6 +289,48 @@ export class LectureService {
     this.manualTargets.consume(input.candidateId);
     await this.publish();
     if (this.active) void repos.loop.tick();
+  }
+
+  async editImportedTime(input: EditImportedTimeInput): Promise<void> {
+    await this.requireRepos().jobs.editImportedTime(input, this.deps.now());
+    await this.publish();
+    if (this.active) void this.repos?.loop.tick();
+  }
+
+  async reschedule(input: RescheduleInput): Promise<string> {
+    const id = await this.requireRepos().jobs.reschedule(input, this.deps.now());
+    await this.publish();
+    if (this.active) void this.repos?.loop.tick();
+    return id;
+  }
+
+  async cancelReschedule(jobId: string): Promise<void> {
+    await this.requireRepos().jobs.cancelReschedule(jobId, this.deps.now());
+    await this.publish();
+    if (this.active) void this.repos?.loop.tick();
+  }
+
+  async deleteLecture(jobId: string, date?: string): Promise<void> {
+    const repos = this.requireRepos();
+    const job = await repos.jobs.getById(jobId);
+    if (!job) throw new Error('Lecture not found');
+    if (job.source === 'timetable') {
+      if (job.schedule.type !== 'imported' || !date)
+        throw new Error('Imported occurrence not found');
+      const entry = job.schedule.occurrences.find((item) => item.date === date);
+      if (!entry) throw new Error('Imported occurrence not found');
+      const start = DateTime.fromISO(`${date}T${entry.joinAt}`, {
+        zone: job.schedule.timezone,
+      });
+      if (!start.isValid) throw new Error('Imported occurrence not found');
+      await this.setSkipped(jobId, `${jobId}:${start.toISO()}`, true);
+      return;
+    }
+    if (date || job.rescheduledFrom) throw new Error('Manual lecture not found');
+    const active = repos.runner.active;
+    if (active?.jobId === jobId) await repos.runner.stop(active, 'manual');
+    await repos.jobs.deleteManual(jobId);
+    await this.publish();
   }
 
   async stopCurrent(): Promise<void> {
@@ -392,11 +438,21 @@ export class LectureService {
   }
 }
 
-function toItem(entry: AgendaEntry): AgendaItem {
+function toItem(entry: AgendaEntry, job: Job | undefined, now: Date): AgendaItem {
+  const source = job?.source === 'manual' ? 'manual' : 'timetable';
+  const editable = Boolean(
+    job &&
+    !entry.skipped &&
+    DateTime.fromISO(entry.joinAtIso).toMillis() > now.getTime() &&
+    (!entry.run || entry.run.status === 'scheduled'),
+  );
   return {
     jobId: entry.jobId,
     occurrenceId: entry.occurrenceId,
     title: entry.title,
+    source,
+    editable,
+    ...(job?.rescheduledFrom ? { rescheduledFrom: job.rescheduledFrom } : {}),
     date: entry.date,
     joinAt: entry.joinAt,
     leaveAt: entry.leaveAt,

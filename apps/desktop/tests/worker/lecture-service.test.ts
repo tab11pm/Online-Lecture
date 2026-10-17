@@ -137,6 +137,61 @@ async function connected(last: () => LecturesView | undefined) {
 }
 
 describe('LectureService', () => {
+  it('publishes an edited imported time and editability', async () => {
+    await seed(jobAt(new Date(START.getTime() + 86_400_000), 60));
+    const { service } = setup();
+    await service.open();
+    expect(service.getView().agenda[0]).toMatchObject({ source: 'timetable', editable: true });
+    await service.editImportedTime({ jobId: 'tt:seed:1', date: '2026-10-16', joinAt: '13:00', leaveAt: '14:00' });
+    expect(service.getView().agenda[0]).toMatchObject({ joinAt: '13:00', leaveAt: '14:00', editable: true });
+  });
+
+  it('shows one linked replacement and restores the source after cancellation', async () => {
+    await seed(jobAt(new Date(START.getTime() + 86_400_000), 60));
+    const { service } = setup();
+    await service.open();
+    const replacementId = await service.reschedule({ jobId: 'tt:seed:1', date: '2026-10-16', newDate: '2026-10-17', newJoinAt: '15:00', newLeaveAt: '16:00' });
+    expect(service.getView().agenda).toEqual([
+      expect.objectContaining({ source: 'timetable', skipped: true, editable: false }),
+      expect.objectContaining({ jobId: replacementId, source: 'manual', editable: true, rescheduledFrom: { jobId: 'tt:seed:1', date: '2026-10-16' } }),
+    ]);
+    await service.cancelReschedule(replacementId);
+    expect(service.getView().agenda).toEqual([expect.objectContaining({ source: 'timetable', skipped: false })]);
+  });
+
+  it('rejects cancelling a move after its replacement has run', async () => {
+    await seed(jobAt(new Date(START.getTime() + 86_400_000), 60));
+    const { service } = setup();
+    await service.open();
+    const replacementId = await service.reschedule({ jobId: 'tt:seed:1', date: '2026-10-16', newDate: '2026-10-17', newJoinAt: '15:00', newLeaveAt: '16:00' });
+    const occurrenceId = service.getView().agenda.find((item) => item.jobId === replacementId)!.occurrenceId;
+    await withStore(async ({ runs }) => { await runs.getOrCreate({ jobId: replacementId, occurrenceId, status: 'completed', createdAt: START.toISOString(), updatedAt: START.toISOString() }); });
+    await expect(service.cancelReschedule(replacementId)).rejects.toThrow();
+  });
+
+  it('hides only the selected imported date', async () => {
+    const job = jobAt(new Date(START.getTime() + 86_400_000), 60);
+    if (job.schedule.type !== 'imported') throw new Error('Expected imported');
+    job.schedule.occurrences.push({ date: '2026-10-17', joinAt: '12:00', leaveAt: '13:00' });
+    await seed(job);
+    const { service } = setup();
+    await service.open();
+    await service.deleteLecture(job.id, '2026-10-16');
+    expect(service.getView().agenda.map((item) => item.skipped)).toEqual([true, false]);
+  });
+
+  it('stops an active manual lecture before deletion and keeps its run', async () => {
+    const manual: Job = { ...jobAt(new Date(START.getTime() - 60_000), 60), id: 'manual:active', source: 'manual', title: 'Ручная пара', schedule: { type: 'once', date: '2026-10-15', joinAt: '11:59', leaveAt: '12:59', timezone: ZONE } };
+    await seed(manual);
+    const { service, last } = setup();
+    await service.open();
+    service.activate('startup');
+    await connected(last);
+    await service.deleteLecture(manual.id);
+    expect(await withStore(({ jobs }) => jobs.getById(manual.id))).toBeUndefined();
+    expect((await withStore(({ runs }) => runs.listAll()))[0]).toMatchObject({ status: 'completed', completionReason: 'manual' });
+  });
+
   it('saves a confirmed manual lecture without exposing its activity URL', async () => {
     const { service } = setup({
       resolveManualTarget: async () => ({ status: 'resolved', course: { id: '1', name: 'Математика' }, module: { id: '2', name: 'Лекция', type: 'lecture', courseUrl: 'https://sdo.tusur.ru/course/view.php?id=1', activityUrl: 'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=2?token=secret' } }),
