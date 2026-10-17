@@ -256,7 +256,10 @@ function mergeMatchedJob(
     );
 
     if (prior?.edited) {
-      occurrences.push({ ...prior });
+      occurrences.push({
+        ...prior,
+        ...(deduped.suppressed ? { suppressed: true } : {}),
+      });
       summary.preservedEdits += 1;
     } else if (prior?.suppressed) {
       occurrences.push({ ...deduped, suppressed: true });
@@ -270,7 +273,16 @@ function mergeMatchedJob(
       continue;
     }
     if (prior.edited) {
-      occurrences.push({ ...prior });
+      const deduped = applyManualDedup(
+        prior,
+        discipline,
+        oncePairs,
+        weeklyPairs,
+      );
+      occurrences.push({
+        ...prior,
+        ...(deduped.suppressed ? { suppressed: true } : {}),
+      });
       summary.preservedEdits += 1;
     } else if (prior.suppressed) {
       occurrences.push({ ...prior });
