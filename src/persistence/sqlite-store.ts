@@ -19,6 +19,16 @@ const initialSchema = `
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS desktop_events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    event_key TEXT NOT NULL UNIQUE,
+    code TEXT NOT NULL,
+    occurred_at TEXT NOT NULL,
+    title TEXT,
+    job_id TEXT,
+    occurrence_id TEXT
+  );
+  CREATE INDEX IF NOT EXISTS desktop_events_by_time ON desktop_events(occurred_at DESC, id DESC);
 `;
 
 export interface SqliteStoreOptions {
@@ -48,7 +58,7 @@ export class SqliteStore {
         : { nativeBinding: this.options.nativeBinding },
     );
     this.database.exec(initialSchema);
-    this.database.pragma('user_version = 1');
+    this.database.pragma('user_version = 2');
   }
 
   async openWithRecovery(): Promise<{

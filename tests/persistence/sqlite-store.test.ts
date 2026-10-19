@@ -24,7 +24,7 @@ describe('SqliteStore', () => {
 
     await store.open();
 
-    expect(store.migrationVersion()).toBe(1);
+    expect(store.migrationVersion()).toBe(2);
     store.close();
   });
 
@@ -37,7 +37,7 @@ describe('SqliteStore', () => {
 
     await store.open();
 
-    expect(store.migrationVersion()).toBe(1);
+    expect(store.migrationVersion()).toBe(2);
     store.close();
   });
 
@@ -68,7 +68,7 @@ describe('SqliteStore', () => {
 
     expect(result.status).toBe('restored');
     expect(result.diagnosticPath).toContain('.corrupt-');
-    expect(recovered.migrationVersion()).toBe(1);
+    expect(recovered.migrationVersion()).toBe(2);
     recovered.close();
   });
 
