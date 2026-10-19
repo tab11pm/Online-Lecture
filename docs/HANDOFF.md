@@ -4,7 +4,7 @@
 
 Подготовлен `docs/superpowers/specs/2026-10-19-windows-packaging-design.md` и OpenSpec `windows-packaging`. Предлагаются per-user NSIS x64, отдельный native-ресурс SQLite, распакованный production-граф, запрет `.env` в packaged main/MCP, стабильный appId и single-instance. Chromium остаётся загрузкой по кнопке; данные сохраняются при обновлении и uninstall. Публичная публикация, подпись и автообновления не входят в этап.
 
-Документ требует ревью пользователя до составления implementation plan и изменения production-кода. Проверены форматирование и `git diff --check`; OpenSpec CLI не установлен, автоматическая валидация не выполнена. Windows-установщик ещё не создавался и на Windows не проверялся.
+Пользователь согласовал дизайн и план `docs/superpowers/plans/2026-10-19-windows-packaging.md` (пять задач), затем передал реализацию DeepSeek. Luna не запускается; Codex может проверить получившиеся изменения после реализации. OpenSpec tasks пока не выполнены, production-код не менялся. Проверены форматирование и `git diff --check`; OpenSpec CLI не установлен, автоматическая валидация не выполнена. Windows-установщик ещё не создавался и на Windows не проверялся.
 
 ## Windows: предварительный аудит упаковки (2026-10-19)
 

@@ -30,4 +30,4 @@ Chromium не включается: по подтверждённой польз
 
 ## Impact
 
-Desktop manifest/lockfile, конфигурация electron-builder, build-проверки, main/worker runtime-конфигурация, внутренний контракт процессов и тесты. Публичный renderer API, расписание и схема данных не меняются. Полный проект дизайна: [2026-10-19-windows-packaging-design.md](../../../docs/superpowers/specs/2026-10-19-windows-packaging-design.md). До согласования документа реализация не начинается.
+Desktop manifest/lockfile, конфигурация electron-builder, build-проверки, main/worker runtime-конфигурация, внутренний контракт процессов и тесты. Публичный renderer API, расписание и схема данных не меняются. Согласованный пользователем дизайн: [2026-10-19-windows-packaging-design.md](../../../docs/superpowers/specs/2026-10-19-windows-packaging-design.md). План реализации также согласован; исполнение передаётся DeepSeek.

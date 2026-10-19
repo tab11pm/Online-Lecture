@@ -2,7 +2,7 @@
 
 ## Context
 
-Проект дизайна: [2026-10-19-windows-packaging-design.md](../../../docs/superpowers/specs/2026-10-19-windows-packaging-design.md). Требует ревью пользователя до реализации.
+Согласованный пользователем дизайн: [2026-10-19-windows-packaging-design.md](../../../docs/superpowers/specs/2026-10-19-windows-packaging-design.md). План реализации также согласован; исполнение передаётся DeepSeek.
 
 ## Goals / Non-Goals
 
