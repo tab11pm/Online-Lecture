@@ -1,0 +1,59 @@
+name: Attach Windows preview installer
+
+on:
+  push:
+    branches:
+      - release/v0.1.0-assets
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  attach:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Verify source run and draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          python3 - <<'PY'
+          import json, os, subprocess
+          repo = os.environ['GH_REPO']
+          def api(path):
+              return json.loads(subprocess.check_output(['gh', 'api', path]))
+          run = api(f'repos/{repo}/actions/runs/39335337451')
+          assert run['head_sha'] == 'f9f9acf57fec14fb6f7d8f4c8bb6ab9a78fa2b20'
+          jobs = api(f'repos/{repo}/actions/runs/39335337451/jobs')['jobs']
+          steps = {step['name']: step for job in jobs for step in job['steps']}
+          for name in ['Build Windows installer', 'Upload Windows preview installer', 'Smoke-check packaged runtime (SQLite, Playwright, MCP)']:
+              assert steps[name]['conclusion'] == 'success', name
+          release = json.loads(subprocess.check_output([
+              'gh', 'release', 'view', 'v0.1.0', '--json',
+              'isDraft,isPrerelease,targetCommitish,assets',
+          ]))
+          assert release['isDraft'] and release['isPrerelease']
+          assert release['targetCommitish'] == '6006f891d265e79c0f660168ddea3249d4a4874f'
+          assert not release['assets'], 'Draft already has assets; refusing to overwrite'
+          print('Verified Windows build, runtime smoke, and empty draft prerelease')
+          PY
+
+      - name: Download exact Windows build artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-preview-0.1.0
+          run-id: 39335337451
+          github-token: ${{ github.token }}
+          path: installer
+
+      - name: Verify checksum and attach to draft
+        working-directory: installer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          sha256sum --check --strict OnlineLecture-Setup-0.1.0-x64.exe.sha256
+          gh release upload v0.1.0 OnlineLecture-Setup-0.1.0-x64.exe OnlineLecture-Setup-0.1.0-x64.exe.sha256
