@@ -27,19 +27,25 @@ npm test        # core suite + desktop suite
 
 ## E2E с фиктивной сессией
 
-`tests/e2e/onboarding.test.ts` — vitest-спека, которая через Playwright `_electron`
-поднимает `out/main/index.js`, проходит приветствие → форму входа → панель активной
-сессии. Без сессии и без реального SSO: `ONLINE_LECTURE_FAKE_SESSION=1` подменяет
-провайдер на `FakeSessionProvider`. По умолчанию тест пропускается, чтобы `npm test`
-оставался зелёным без дисплея:
+`tests/e2e/` — четыре vitest-сценария через Playwright `_electron`: вход,
+успешная лекция с ручной остановкой и журналом, ошибка лекции в журнале и
+добавление/перенос/отмена переноса/удаление пары. Запускается desktop-пакет,
+чтобы пути к нативной SQLite определялись как при обычном старте приложения.
+Каждый сценарий получает отдельный временный `LOCALAPPDATA` и профиль Electron.
+`ONLINE_LECTURE_FAKE_SESSION=1` подменяет провайдер и адаптеры фиктивными;
+реальные SSO-креденшелы и университетские сервисы не используются. По умолчанию
+сценарии пропускаются, чтобы `npm test` не требовал GUI:
 
 ```bash
 npm run build -w @online-lecture/desktop
-CI_ELECTRON_E2E=1 npm test -w @online-lecture/desktop -- onboarding
+CI_ELECTRON_E2E=1 npm test -w @online-lecture/desktop -- tests/e2e
 ```
 
-Если сборки нет или Electron не стартует в окружении, тест помечается пропущенным
-с причиной. Реальные SSO-креденшелы в тесте не используются.
+При явном включении E2E отсутствие сборки или ошибка запуска Electron приводят
+к падению теста с причиной, а не к пропуску. Нужны Electron, GUI-сессия и
+Playwright Chromium вместе с headless shell; используйте `PLAYWRIGHT_BROWSERS_PATH`,
+если браузеры установлены в отдельный каталог. Успешный Linux-прогон не заменяет
+проверку установщика, Edge и DPAPI на Windows.
 
 ## Архитектура
 

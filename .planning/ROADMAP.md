@@ -7,6 +7,7 @@
 **Plans:** 1 plan
 
 Plans:
+
 - [x] timetable-auto-import — ядро импорта, слияние и CLI (Tasks 1–10)
 
 ## Backlog
@@ -18,6 +19,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
 
 ### Phase 999.2: SDO MCP по утверждённому контракту (BACKLOG)
@@ -27,6 +29,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
 
 ### Phase 999.3: Безопасная BBB-автоматизация (BACKLOG)
@@ -36,6 +39,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
 
 ### Phase 999.4: Security и quality gate (BACKLOG)
@@ -45,6 +49,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
 
 ### Phase 999.5: Достоверные контрактные и E2E-тесты (BACKLOG)
@@ -54,6 +59,7 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
 
 ### Phase 999.6: Windows Electron пользовательское приложение (BACKLOG)
@@ -63,15 +69,17 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
 
 ### Phase 999.7: Упаковка и Windows E2E (BACKLOG)
 
-**Goal:** Поставлять приложение одним Windows-установщиком без внешних зависимостей.
-**Requirements:** Включить Electron/Node, Chromium Playwright, SDO MCP и SQLite; проверить чистую Windows-машину, автозапуск, uninstall и восстановление после перезапуска.
+**Goal:** Поставлять приложение одним Windows-установщиком без ручной установки зависимостей.
+**Requirements:** Включить Electron/Node, Playwright с CLI, SDO MCP и SQLite; использовать Edge по умолчанию на Windows, Chromium не включать в установщик и загружать только по кнопке внутри приложения без системных Node.js/npm; проверить чистую Windows-машину, оба браузерных сценария, автозапуск, uninstall и восстановление после перезапуска.
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
 
 ### Phase 999.8: Согласование YAML, CLI и OpenSpec (BACKLOG)
@@ -81,4 +89,5 @@ Plans:
 **Plans:** 0 plans
 
 Plans:
+
 - [ ] TBD (promote with $gsd-review-backlog when ready)
