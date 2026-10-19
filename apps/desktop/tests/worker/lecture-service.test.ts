@@ -140,6 +140,56 @@ async function connected(last: () => LecturesView | undefined) {
 }
 
 describe('LectureService', () => {
+  it('records one failed import attempt without exposing its error text', async () => {
+    const { service, onJournalEvent, last } = setup({
+      runImport: async () => ({
+        status: 'failed',
+        message: 'secret https://sdo.tusur.ru/?token=abc',
+      }),
+    });
+    await service.open();
+    service.activate('login');
+    await vi.waitFor(() => expect(last()?.import.status).toBe('failed'));
+    await vi.waitFor(() => expect(onJournalEvent).toHaveBeenCalledTimes(1));
+
+    expect((await service.listJournalPage('errors')).items).toEqual([
+      expect.objectContaining({ status: 'import_error' }),
+    ]);
+    expect(JSON.stringify(await service.listJournalPage('errors'))).not.toMatch(
+      /sdo\.tusur|token=abc|secret/,
+    );
+  });
+
+  it('records ambiguous lookup once per request with a safe title', async () => {
+    const { service, onJournalEvent } = setup({
+      resolveManualTarget: async () => ({
+        status: 'ambiguous',
+        candidates: [
+          {
+            id: '2',
+            name: 'Лекция',
+            type: 'lecture',
+            courseUrl: 'https://sdo.tusur.ru/course/view.php?id=1',
+            activityUrl:
+              'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=2',
+          },
+        ],
+      }),
+    });
+    await service.open();
+    await service.resolveManualTarget(
+      'https://sdo.tusur.ru/course/view.php?id=1',
+    );
+    await service.resolveManualTarget(
+      'https://sdo.tusur.ru/course/view.php?id=1',
+    );
+
+    expect(onJournalEvent).toHaveBeenCalledTimes(2);
+    expect((await service.listJournalPage('all')).items).toHaveLength(2);
+    expect(JSON.stringify(await service.listJournalPage('all'))).not.toMatch(
+      /sdo\.tusur|course\/view/,
+    );
+  });
   it('labels legacy jobs without a source as manual', async () => {
     const legacy = jobAt(new Date(START.getTime() + 86_400_000), 60);
     delete legacy.source;

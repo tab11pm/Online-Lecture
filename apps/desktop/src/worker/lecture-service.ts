@@ -14,7 +14,10 @@ import { redactSensitiveText } from '@core/core/redaction.js';
 import { Scheduler } from '@core/core/scheduler.js';
 import type { Job, OnlineLectureResolution, Run } from '@core/core/types.js';
 import { SqliteJobRepository } from '@core/persistence/job-repository.js';
-import { DesktopEventRepository } from '@core/persistence/desktop-event-repository.js';
+import {
+  DesktopEventRepository,
+  type JournalCode,
+} from '@core/persistence/desktop-event-repository.js';
 import { SqliteMetaRepository } from '@core/persistence/meta-repository.js';
 import { SqliteRunRepository } from '@core/persistence/run-repository.js';
 import { SqliteStore } from '@core/persistence/sqlite-store.js';
@@ -198,6 +201,15 @@ export class LectureService {
         void this.publish();
       },
       onAuthRequired: () => this.deps.onAuthRequired(),
+      onFailure: () => {
+        void journal
+          .record(
+            'import_error',
+            `import:${randomUUID()}`,
+            'Не удалось обновить расписание',
+          )
+          .catch((error) => this.logError('journal', error));
+      },
     });
     let wasActive = false;
     const runner: SingleLectureRunner = new SingleLectureRunner({
@@ -237,7 +249,16 @@ export class LectureService {
         await this.publish();
       },
       now: () => this.deps.now(),
-      onError: (error) => this.logError('scheduler', error),
+      onError: (error) => {
+        this.logError('scheduler', error);
+        void journal
+          .record(
+            'core_error',
+            `scheduler:${randomUUID()}`,
+            'Ошибка планировщика',
+          )
+          .catch((journalError) => this.logError('journal', journalError));
+      },
     });
     this.repos = { store, jobs, runs, journal, imports, runner, loop };
     await this.publish();
@@ -316,12 +337,28 @@ export class LectureService {
     return this.requireRepos().journal.listPage(filter, cursor);
   }
 
+  async recordSystemEvent(
+    code: JournalCode,
+    key: string,
+    title?: string,
+  ): Promise<void> {
+    await this.requireRepos().journal.record(code, key, title);
+  }
+
   async resolveManualTarget(query: string): Promise<ManualTargetLookup> {
     this.requireRepos();
     const input = parseManualQuery(query);
     this.manualTargets.clear();
     const resolution = await this.deps.adapters.resolveManualTarget(input);
-    return this.manualTargets.remember(resolution, query);
+    const lookup = this.manualTargets.remember(resolution, query);
+    if (lookup.status === 'ambiguous') {
+      await this.recordSystemEvent(
+        'search_ambiguous',
+        `search:${randomUUID()}`,
+        'Неоднозначный поиск лекции',
+      );
+    }
+    return lookup;
   }
 
   async saveManual(input: {

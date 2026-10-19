@@ -86,6 +86,7 @@ function fakeLectures() {
     reschedule: vi.fn(async () => 'manual:1'),
     cancelReschedule: vi.fn(async () => undefined),
     deleteLecture: vi.fn(async () => undefined),
+    recordSystemEvent: vi.fn(async () => undefined),
     setBrowser: vi.fn(),
     resumed: vi.fn(),
     shutdown: vi.fn(async () => undefined),
@@ -101,28 +102,161 @@ function fakeLectures() {
 }
 
 describe('CoreHost', () => {
-  it('returns only safe candidate fields from a successful lookup', async () => {
+  it('records a technical host failure by code without the exception text', async () => {
     const lectures = fakeLectures();
-    lectures.control.resolveManualTarget.mockResolvedValueOnce({ status: 'resolved', candidates: [{ id: 'opaque', name: 'Лекция', type: 'lecture', courseName: 'Математика' }] });
-    const { transport, send, posted } = fakeTransport();
-    new CoreHost(transport, { paths, machine: machine(), lectures: lectures.factory }).start();
+    const { transport, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: throwingMachine(
+        new Error('cookie: session=secret https://sdo.tusur.ru/?token=abc'),
+      ),
+      lectures: lectures.factory,
+    }).start();
     send({ type: 'onboarding.checkSession' });
     await flush();
-    send({ type: 'lectures.resolveManualTarget', requestId: 'r2', query: 'Математика' });
+
+    expect(lectures.control.recordSystemEvent).toHaveBeenCalledWith(
+      'core_error',
+      expect.any(String),
+    );
+    expect(
+      JSON.stringify(lectures.control.recordSystemEvent.mock.calls),
+    ).not.toMatch(/secret|sdo\.tusur|token=abc/);
+  });
+
+  it('still reports host.error when the lecture database cannot open', async () => {
+    const lectures = fakeLectures();
+    lectures.control.open.mockRejectedValueOnce(
+      new Error('Lecture database is not open'),
+    );
+    const { transport, posted } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
     await flush();
-    const result = posted.find((event) => event.type === 'lectures.commandResult' && event.requestId === 'r2');
-    expect(result).toMatchObject({ type: 'lectures.commandResult', ok: true, value: { status: 'resolved', candidates: [{ id: 'opaque', name: 'Лекция' }] } });
+
+    expect(posted).toContainEqual({
+      type: 'host.error',
+      message: 'База лекций недоступна. Перезапустите приложение.',
+    });
+    expect(lectures.control.recordSystemEvent).not.toHaveBeenCalled();
+  });
+  it('records interactive login success while restored session stays silent', async () => {
+    const lectures = fakeLectures();
+    const { transport, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+    expect(lectures.control.recordSystemEvent).not.toHaveBeenCalled();
+
+    send({
+      type: 'onboarding.login',
+      input: { username: 'student', password: 'secret' },
+    });
+    await flush();
+    expect(lectures.control.recordSystemEvent).toHaveBeenCalledWith(
+      'login_succeeded',
+      expect.any(String),
+    );
+  });
+
+  it('records auth_required once until another successful login', async () => {
+    const lectures = fakeLectures();
+    const { transport, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    await flush();
+    lectures.events().onAuthRequired();
+    lectures.events().onAuthRequired();
+    await flush();
+    expect(lectures.control.recordSystemEvent).toHaveBeenCalledTimes(1);
+    expect(lectures.control.recordSystemEvent).toHaveBeenCalledWith(
+      'auth_required',
+      expect.any(String),
+    );
+
+    send({
+      type: 'onboarding.login',
+      input: { username: 'student', password: 'secret' },
+    });
+    await flush();
+    lectures.events().onAuthRequired();
+    await flush();
+    expect(lectures.control.recordSystemEvent).toHaveBeenCalledTimes(3);
+  });
+  it('returns only safe candidate fields from a successful lookup', async () => {
+    const lectures = fakeLectures();
+    lectures.control.resolveManualTarget.mockResolvedValueOnce({
+      status: 'resolved',
+      candidates: [
+        {
+          id: 'opaque',
+          name: 'Лекция',
+          type: 'lecture',
+          courseName: 'Математика',
+        },
+      ],
+    });
+    const { transport, send, posted } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+    send({
+      type: 'lectures.resolveManualTarget',
+      requestId: 'r2',
+      query: 'Математика',
+    });
+    await flush();
+    const result = posted.find(
+      (event) =>
+        event.type === 'lectures.commandResult' && event.requestId === 'r2',
+    );
+    expect(result).toMatchObject({
+      type: 'lectures.commandResult',
+      ok: true,
+      value: {
+        status: 'resolved',
+        candidates: [{ id: 'opaque', name: 'Лекция' }],
+      },
+    });
     expect(JSON.stringify(result)).not.toContain('https:');
   });
 
   it('rejects schedule editing without an available session', async () => {
     const lectures = fakeLectures();
     const { transport, send, posted } = fakeTransport();
-    new CoreHost(transport, { paths, machine: machine({ checkSession: vi.fn().mockResolvedValue(false) }), lectures: lectures.factory }).start();
-    send({ type: 'lectures.deleteLecture', requestId: 'r1', jobId: 'manual:1' });
+    new CoreHost(transport, {
+      paths,
+      machine: machine({ checkSession: vi.fn().mockResolvedValue(false) }),
+      lectures: lectures.factory,
+    }).start();
+    send({
+      type: 'lectures.deleteLecture',
+      requestId: 'r1',
+      jobId: 'manual:1',
+    });
     await flush();
     expect(lectures.control.deleteLecture).not.toHaveBeenCalled();
-    expect(posted).toContainEqual(expect.objectContaining({ type: 'lectures.commandResult', requestId: 'r1', ok: false }));
+    expect(posted).toContainEqual(
+      expect.objectContaining({
+        type: 'lectures.commandResult',
+        requestId: 'r1',
+        ok: false,
+      }),
+    );
   });
 
   it('applies browser changes to future provider operations', () => {
