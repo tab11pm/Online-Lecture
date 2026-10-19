@@ -7,12 +7,14 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { dirname } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   createSmokeEnvironment,
   runChildProcess,
   smokePackagedRuntime,
 } from '../../scripts/packaged-runtime-smoke.js';
+import { runPackagedRuntimeSmokeForE2E } from '../e2e/support/packaged-runtime-smoke.js';
 import {
   resolveLaunchMode,
   sanitizePackagedEnvironment,
@@ -43,7 +45,16 @@ function createRuntimeFixture(): {
   const resources = join(packageDir, 'resources');
   const unpacked = join(resources, 'app.asar.unpacked');
   touch(join(resources, 'native', 'better_sqlite3.node'));
+  touch(join(unpacked, 'node_modules', 'better-sqlite3', 'lib', 'index.js'));
+  writeFileSync(
+    join(unpacked, 'node_modules', 'better-sqlite3', 'package.json'),
+    JSON.stringify({ main: 'lib/index.js' }),
+  );
   touch(join(unpacked, 'node_modules', 'playwright', 'cli.js'));
+  writeFileSync(
+    join(unpacked, 'node_modules', 'playwright', 'package.json'),
+    JSON.stringify({ bin: { playwright: 'cli.js' } }),
+  );
   touch(join(unpacked, 'node_modules', 'sdo_mcp', 'dist', 'index.js'));
   writeFileSync(
     join(unpacked, 'node_modules', 'sdo_mcp', 'package.json'),
@@ -93,6 +104,18 @@ describe('resolveLaunchMode', () => {
     ).toThrow('existing file');
   });
 
+  it('rejects a directory configured as the packaged executable', () => {
+    const directory = join(root, 'not-an-executable');
+    mkdirSync(directory, { recursive: true });
+
+    expect(() =>
+      resolveLaunchMode(
+        { ONLINE_LECTURE_PACKAGED_EXECUTABLE: directory },
+        'win32',
+      ),
+    ).toThrow('existing file');
+  });
+
   it('removes developer runtime hooks from packaged children', () => {
     const env = sanitizePackagedEnvironment({
       NODE_PATH: '/repo/node_modules',
@@ -120,10 +143,12 @@ describe('createSmokeEnvironment', () => {
       DOTENV_CONFIG_PATH: 'NUL',
       DOTENV_CONFIG_QUIET: 'true',
       DOTENV_CONFIG_DEBUG: 'false',
-      PATH: 'C:\\Windows',
+      PATH: 'C:\\Windows\\System32',
+      Path: 'C:\\Windows\\System32',
     });
     expect(env).not.toHaveProperty('NODE_PATH');
     expect(env).not.toHaveProperty('NODE_OPTIONS');
+    expect(env.PATH).not.toContain('/repo');
     expect(createSmokeEnvironment('linux', {}).DOTENV_CONFIG_PATH).toBe(
       '/dev/null',
     );
@@ -196,6 +221,32 @@ describe('smokePackagedRuntime', () => {
     ).rejects.toThrow('sdo_mcp');
   });
 
+  it.each([
+    ['better-sqlite3', 'lib/index.js', 'SQLite JavaScript entry'],
+    ['playwright', 'cli.js', 'Playwright CLI'],
+    ['sdo_mcp', 'dist/index.js', 'SDO MCP entry'],
+  ])('rejects missing %s runtime file', async (moduleName, file, message) => {
+    const fixture = createRuntimeFixture();
+    rmSync(
+      join(
+        fixture.packageDir,
+        'resources',
+        'app.asar.unpacked',
+        'node_modules',
+        moduleName,
+        file,
+      ),
+      { force: true },
+    );
+
+    await expect(
+      smokePackagedRuntime(fixture, {
+        runChild: async () => undefined,
+        handshake: async () => undefined,
+      }),
+    ).rejects.toThrow(message);
+  });
+
   it('closes and cleans up when a child check fails', async () => {
     const fixture = createRuntimeFixture();
     let scriptPath = '';
@@ -211,6 +262,30 @@ describe('smokePackagedRuntime', () => {
     ).rejects.toThrow('code 1');
     expect(scriptPath).not.toBe('');
     expect(existsSync(scriptPath)).toBe(false);
+  });
+});
+
+describe('runPackagedRuntimeSmokeForE2E', () => {
+  it('uses the executable directory and isolated cwd, propagating smoke failures', async () => {
+    const executablePath = touch(
+      join(root, 'package dir', 'OnlineLecture.exe'),
+    );
+    let seen:
+      { executablePath: string; packageDir: string; cwd: string } | undefined;
+    await expect(
+      runPackagedRuntimeSmokeForE2E(executablePath, async (input) => {
+        seen = input;
+        expect(existsSync(input.cwd)).toBe(true);
+        throw new Error('packaged runtime check exited with code 1');
+      }),
+    ).rejects.toThrow('code 1');
+
+    expect(seen).toMatchObject({
+      executablePath,
+      packageDir: dirname(executablePath),
+    });
+    expect(seen?.cwd).not.toBe(root);
+    expect(existsSync(seen?.cwd ?? '')).toBe(false);
   });
 });
 

@@ -4,6 +4,7 @@ import {
   mkdirSync,
   mkdtempSync,
   rmSync,
+  renameSync,
   symlinkSync,
   unlinkSync,
   writeFileSync,
@@ -123,6 +124,43 @@ async function buildFixture(
   for (const spec of options.modules ?? DEFAULT_MODULES) {
     writeModule(modulesDir, spec);
   }
+  for (const file of [
+    ['better-sqlite3', 'lib', 'index.js'],
+    ['playwright', 'cli.js'],
+    ['sdo_mcp', 'dist', 'index.js'],
+  ]) {
+    const path = join(modulesDir, ...file);
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, 'process.exit(0);', 'utf8');
+  }
+  writeFileSync(
+    join(modulesDir, 'better-sqlite3', 'package.json'),
+    JSON.stringify({
+      name: 'better-sqlite3',
+      version: '1.0.0',
+      main: 'lib/index.js',
+    }),
+    'utf8',
+  );
+  writeFileSync(
+    join(modulesDir, 'playwright', 'package.json'),
+    JSON.stringify({
+      name: 'playwright',
+      version: '1.0.0',
+      bin: { playwright: 'cli.js' },
+    }),
+    'utf8',
+  );
+  writeFileSync(
+    join(modulesDir, 'sdo_mcp', 'package.json'),
+    JSON.stringify({
+      name: 'sdo_mcp',
+      version: '1.0.0',
+      main: 'dist/index.js',
+      dependencies: { dotenv: '^17.4.2' },
+    }),
+    'utf8',
+  );
   for (const [name, contents] of Object.entries(options.extraUnpacked ?? {})) {
     const path = join(packageDir, 'resources', 'app.asar.unpacked', name);
     mkdirSync(dirname(path), { recursive: true });
@@ -159,6 +197,21 @@ describe('verifyPackagedApplication', () => {
     });
 
     expect(result.checkedFiles).toBeGreaterThan(REQUIRED_ASAR_ENTRIES.length);
+  });
+
+  it('does not treat a parent directory named profiles as packaged profile data', async () => {
+    const fixture = await buildFixture();
+    const movedPackageDir = join(root, 'profiles', 'clean-package');
+    mkdirSync(dirname(movedPackageDir), { recursive: true });
+    renameSync(fixture.packageDir, movedPackageDir);
+    fixture.packageDir = movedPackageDir;
+
+    await expect(
+      verifyPackagedApplication({
+        packageDir: fixture.packageDir,
+        expectedNativeSha256: fixture.nativeSha,
+      }),
+    ).resolves.toBeDefined();
   });
 
   it('rejects a missing worker entry', async () => {
@@ -205,6 +258,41 @@ describe('verifyPackagedApplication', () => {
         expectedNativeSha256: fixture.nativeSha,
       }),
     ).rejects.toThrow('dotenv');
+  });
+
+  it.each([
+    ['sdo_mcp', 'dist/index.js', 'SDO MCP'],
+    ['playwright', 'cli.js', 'Playwright CLI'],
+    ['better-sqlite3', 'lib/index.js', 'better-sqlite3 entry'],
+  ])(
+    'rejects a missing critical runtime file: %s/%s',
+    async (moduleName, file, label) => {
+      const fixture = await buildFixture();
+      rmSync(join(fixture.modulesDir, moduleName, file), { force: true });
+
+      await expect(
+        verifyPackagedApplication({
+          packageDir: fixture.packageDir,
+          expectedNativeSha256: fixture.nativeSha,
+        }),
+      ).rejects.toThrow(label);
+    },
+  );
+
+  it('rejects critical manifest paths that escape the package', async () => {
+    const fixture = await buildFixture();
+    writeFileSync(
+      join(fixture.modulesDir, 'sdo_mcp', 'package.json'),
+      JSON.stringify({ name: 'sdo_mcp', main: '../../../../../outside.js' }),
+      'utf8',
+    );
+
+    await expect(
+      verifyPackagedApplication({
+        packageDir: fixture.packageDir,
+        expectedNativeSha256: fixture.nativeSha,
+      }),
+    ).rejects.toThrow('escapes the package');
   });
 
   it('rejects a native checksum mismatch and a non-x64 binary', async () => {
@@ -306,6 +394,166 @@ describe('verifyPackagedApplication', () => {
       }),
     ).rejects.toThrow('environment file');
   });
+
+  it('allows legitimate Undici cookies source inside the ASAR', async () => {
+    const fixture = await buildFixture();
+    const appDir = join(root, 'asar-undici-cookies');
+    mkdirSync(appDir, { recursive: true });
+    for (const entry of REQUIRED_ASAR_ENTRIES) {
+      if (entry === 'package.json') continue;
+      const target = join(appDir, entry);
+      mkdirSync(dirname(target), { recursive: true });
+      writeFileSync(target, '// entry');
+    }
+    const source = join(
+      appDir,
+      'node_modules',
+      'undici',
+      'lib',
+      'web',
+      'cookies',
+      'index.js',
+    );
+    mkdirSync(dirname(source), { recursive: true });
+    writeFileSync(source, 'export {};');
+    writeFileSync(
+      join(appDir, 'package.json'),
+      JSON.stringify({ dependencies: {} }),
+    );
+    await createPackage(appDir, fixture.asarPath);
+
+    await expect(
+      verifyPackagedApplication({
+        packageDir: fixture.packageDir,
+        expectedNativeSha256: fixture.nativeSha,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it('allows legitimate Undici cookies source in unpacked dependencies', async () => {
+    const fixture = await buildFixture({
+      extraUnpacked: {
+        'node_modules/undici/lib/web/cookies/index.js': 'export {};',
+      },
+    });
+
+    await expect(
+      verifyPackagedApplication({
+        packageDir: fixture.packageDir,
+        expectedNativeSha256: fixture.nativeSha,
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it.each(['profiles/Default/Cookies', 'profiles/Default/Network/Cookies'])(
+    'rejects browser profile data inside ASAR at %s',
+    async (path) => {
+      const fixture = await buildFixture();
+      const appDir = join(root, 'asar-profile');
+      mkdirSync(appDir, { recursive: true });
+      for (const entry of REQUIRED_ASAR_ENTRIES) {
+        if (entry === 'package.json') continue;
+        const target = join(appDir, entry);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, '// entry');
+      }
+      const profileFile = join(appDir, path);
+      mkdirSync(dirname(profileFile), { recursive: true });
+      writeFileSync(profileFile, 'fixture cookie database');
+      writeFileSync(
+        join(appDir, 'package.json'),
+        JSON.stringify({ dependencies: {} }),
+      );
+      await createPackage(appDir, fixture.asarPath);
+
+      await expect(
+        verifyPackagedApplication({
+          packageDir: fixture.packageDir,
+          expectedNativeSha256: fixture.nativeSha,
+        }),
+      ).rejects.toThrow(/browser profile.*resources\/app\.asar\/profiles/);
+    },
+  );
+
+  it('rejects unpacked profile directories and reports only package-relative paths', async () => {
+    const fixture = await buildFixture();
+    const cookie = join(
+      fixture.packageDir,
+      'resources',
+      'profiles',
+      'Default',
+      'Cookies',
+    );
+    mkdirSync(dirname(cookie), { recursive: true });
+    writeFileSync(cookie, 'fixture cookie database');
+
+    await expect(
+      verifyPackagedApplication({
+        packageDir: fixture.packageDir,
+        expectedNativeSha256: fixture.nativeSha,
+      }),
+    ).rejects.toThrow('resources/profiles');
+  });
+
+  it.each(['chromium-profile', 'edge-profile', 'chrome-user-data-123'])(
+    'rejects unpacked browser profile directory %s with arbitrary artifacts',
+    async (profileDir) => {
+      const fixture = await buildFixture();
+      const artifact = join(
+        fixture.packageDir,
+        'resources',
+        profileDir,
+        'Local Storage',
+        'leveldb',
+        '000003.ldb',
+      );
+      mkdirSync(dirname(artifact), { recursive: true });
+      writeFileSync(artifact, 'fixture browser profile artifact');
+
+      await expect(
+        verifyPackagedApplication({
+          packageDir: fixture.packageDir,
+          expectedNativeSha256: fixture.nativeSha,
+        }),
+      ).rejects.toThrow(`resources/${profileDir}`);
+    },
+  );
+
+  it.each(['chromium-profile', 'edge-profile', 'chrome-user-data-123'])(
+    'rejects ASAR browser profile directory %s with arbitrary artifacts',
+    async (profileDir) => {
+      const fixture = await buildFixture();
+      const appDir = join(root, `asar-${profileDir}`);
+      mkdirSync(appDir, { recursive: true });
+      for (const entry of REQUIRED_ASAR_ENTRIES) {
+        if (entry === 'package.json') continue;
+        const target = join(appDir, entry);
+        mkdirSync(dirname(target), { recursive: true });
+        writeFileSync(target, '// entry');
+      }
+      const artifact = join(
+        appDir,
+        profileDir,
+        'Local Storage',
+        'leveldb',
+        '000003.ldb',
+      );
+      mkdirSync(dirname(artifact), { recursive: true });
+      writeFileSync(artifact, 'fixture browser profile artifact');
+      writeFileSync(
+        join(appDir, 'package.json'),
+        JSON.stringify({ dependencies: {} }),
+      );
+      await createPackage(appDir, fixture.asarPath);
+
+      await expect(
+        verifyPackagedApplication({
+          packageDir: fixture.packageDir,
+          expectedNativeSha256: fixture.nativeSha,
+        }),
+      ).rejects.toThrow(new RegExp(`resources/app\\.asar/${profileDir}`));
+    },
+  );
 
   it('allows LICENSE, NOTICE and third-party SQL files', async () => {
     const fixture = await buildFixture({

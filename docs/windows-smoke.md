@@ -29,6 +29,10 @@
 
 - [ ] `ONLINE_LECTURE_PACKAGED_EXECUTABLE=<путь к OnlineLecture.exe>` и
       `CI_ELECTRON_E2E=1` запускают четыре существующих E2E именно на упакованном exe.
+- [ ] До запуска окна отдельный packaged E2E выполняет реальный runtime smoke через
+      этот exe: открывает SQLite in-memory, запускает bundled Playwright CLI `--version`
+      и выполняет MCP initialize handshake. Рабочая папка временная; PATH ограничен
+      системным каталогом Windows, репозиторий, Node.js и npm не требуются.
 - [ ] `app.isPackaged === true`; fake вход, импорт, лекция, остановка и журнал
       работают с временным `LOCALAPPDATA`.
 - [ ] Добавление, перенос и удаление пары работают на упакованных ресурсах.

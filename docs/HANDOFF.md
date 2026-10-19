@@ -1,5 +1,19 @@
 # Handoff — Online Lecture: автоимпорт расписания ТУСУР
 
+## Исправления трёх замечаний упаковки под контролем Codex (2026-10-20)
+
+По просьбе пользователя реализацию выполнила GPT-6 Luna; отдельная Luna проверила изменения, Codex контролировал процесс и запускал общие проверки. Добавлены проверки обязательных runtime entry-файлов MCP/Playwright/SQLite и выхода их путей за пакет, обнаружение browser profile/session data в ASAR и распакованных ресурсах, вызов настоящего runtime smoke из opt-in packaged E2E с изолированным cwd и системным PATH. Фикстуры не содержат реальных сессий. Исправлены найденные при контроле побочные эффекты: чистый пакет под родительским каталогом `profiles` разрешён, исходники `undici/lib/web/cookies` разрешены, Chromium/Edge profile trees с произвольными LevelDB-файлами отклоняются. Путь packaged executable должен указывать на файл.
+
+Проверки итогового кода: core 328 PASS; desktop 422 PASS, 5 opt-in SKIP при `npm test -w @online-lecture/desktop -- --no-file-parallelism`; `npm run build`, целевые packaging-регрессии, ESLint/Prettier изменённых TypeScript-файлов и `git diff --check` PASS. Обычный параллельный `npm test` дважды воспроизвёл ранее описанный таймаут `offers Chromium installation from the credentials screen` (`readyRadio`); отдельно renderer-файл прошёл 23/23. Поэтому стандартный параллельный прогон нельзя считать стабильно зелёным. Renderer-код в этих исправлениях не менялся.
+
+Исправлены именно три замечания предыдущего ответа Codex. Дополнительные пункты параллельного ревью о NSIS per-user-only и packaged browser override остаются открытыми; см. `docs/reviews/2026-10-20-windows-packaging.md`. Windows-артефакт и настоящий Windows runtime smoke не запускались. Все изменения оставлены в текущем checkout без коммита; несвязанный `online-lecture-source.zip` сохранён.
+
+## Windows: ревью после реализации (2026-10-20)
+
+Перечитан текущий HEAD `68e6b94` и выполнены доступные проверки без изменения production-кода. Итоговый `npm test`: 328 core + 401 desktop PASS (5 opt-in SKIP); core/desktop typecheck и production build PASS. Dev Electron E2E с ранее установленными браузерами (`PLAYWRIGHT_BROWSERS_PATH=/tmp/online-lecture-playwright-browsers`) прошли 4/4; packaged Windows case пропущен. Прежний blocker отсутствующего Chromium для dev E2E снят. Единичный renderer timeout в первом параллельном прогоне не повторился отдельно и в двух последующих suite-прогонах.
+
+Есть незакрытые замечания для DeepSeek: package validator принимает profile/Cookies и отсутствующие MCP/CLI entry-файлы; executable smoke существует, но не подключён к настоящему opt-in запуску; NSIS не гарантирует per-user-only; packaged startup сохраняет внешний browser override вопреки плану. Подробности и воспроизведения: `docs/reviews/2026-10-20-windows-packaging.md`. Linux-гейты не означают принятую Windows-упаковку. Windows-артефакт, установка и runtime на Windows ещё не проверены. Архив `online-lecture-source.zip` не трогать.
+
 ## Windows: реализация упаковки (2026-10-19)
 
 Реализованы задачи 1–4 и 5.1 плана

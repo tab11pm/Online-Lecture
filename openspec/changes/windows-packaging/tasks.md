@@ -1,6 +1,6 @@
 # Tasks
 
-План: [2026-10-19-windows-packaging.md](../../../docs/superpowers/plans/2026-10-19-windows-packaging.md). Реализация 1–4 и 5.1 выполнена; доступные Linux-гейты пройдены. Windows-сборка и приёмка ещё не выполнялись; dev Electron E2E заблокирован отсутствием Playwright Chromium в окружении.
+План: [2026-10-19-windows-packaging.md](../../../docs/superpowers/plans/2026-10-19-windows-packaging.md). Код задач 1–4 добавлен; результаты ревью: [2026-10-20-windows-packaging.md](../../../docs/reviews/2026-10-20-windows-packaging.md). Проверка runtime entry-файлов, фильтр профилей и подключение executable smoke исправлены Luna 6 под контролем Codex. Дополнительные замечания NSIS per-user-only и packaged browser override остаются открытыми. Windows-сборка и приёмка ещё не выполнялись.
 
 ## 1. Packaged runtime
 
@@ -22,6 +22,6 @@
 
 ## 5. Проверка
 
-- [x] 5.1 Добавить packaged fake-session E2E и executable runtime smoke (план Task 5).
-- [ ] 5.2 Пройти доступные unit/build/dev Electron-гейты и обновить handoff (план Task 5). Unit/build и handoff готовы; dev Electron E2E требует установленного Playwright Chromium.
+- [x] 5.1 Добавить packaged fake-session E2E и executable runtime smoke (план Task 5). Smoke подключён к явному packaged E2E до проверки GUI; ошибки завершают тест. Фактический Windows-прогон остаётся в 5.3.
+- [x] 5.2 Пройти доступные unit/build/dev Electron-гейты и обновить handoff (план Task 5). 2026-10-20: 328 core + 401 desktop PASS, dev Electron 4/4, typecheck и build PASS; Windows packaged case не запускался.
 - [ ] 5.3 Фактически проверить чистую Windows: установка, runtime, браузеры, DPAPI, трей, автозапуск, обновление и uninstall (план Task 5).

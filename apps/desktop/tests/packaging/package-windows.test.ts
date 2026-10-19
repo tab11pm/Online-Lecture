@@ -82,9 +82,48 @@ async function createFixture(): Promise<Fixture> {
   }
   writeFileSync(
     join(appDir, 'package.json'),
-    JSON.stringify({ name: 'online-lecture', dependencies: {} }),
+    JSON.stringify({
+      name: 'online-lecture',
+      dependencies: {
+        'better-sqlite3': '^12.6.2',
+        playwright: '^1.52.0',
+        sdo_mcp: '1.2.0',
+      },
+    }),
     'utf8',
   );
+  const modulesDir = join(
+    winUnpacked,
+    'resources',
+    'app.asar.unpacked',
+    'node_modules',
+  );
+  for (const [name, manifest, files] of [
+    [
+      'better-sqlite3',
+      { name: 'better-sqlite3', main: 'lib/index.js' },
+      ['lib/index.js'],
+    ],
+    [
+      'playwright',
+      { name: 'playwright', bin: { playwright: 'cli.js' } },
+      ['cli.js'],
+    ],
+    ['sdo_mcp', { name: 'sdo_mcp', main: 'dist/index.js' }, ['dist/index.js']],
+  ] as const) {
+    const moduleDir = join(modulesDir, name);
+    mkdirSync(moduleDir, { recursive: true });
+    writeFileSync(
+      join(moduleDir, 'package.json'),
+      JSON.stringify(manifest),
+      'utf8',
+    );
+    for (const file of files) {
+      const filePath = join(moduleDir, file);
+      mkdirSync(dirname(filePath), { recursive: true });
+      writeFileSync(filePath, 'fixture runtime entry', 'utf8');
+    }
+  }
   mkdirSync(
     join(winUnpacked, 'resources', 'app.asar.unpacked', 'node_modules'),
     {

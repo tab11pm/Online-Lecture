@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync, realpathSync } from 'node:fs';
 import { basename, dirname, join, relative, resolve } from 'node:path';
+import { statSync } from 'node:fs';
 import { extractFile, listPackage } from '@electron/asar';
 import { assertPeX64 } from './native-build-check.js';
 
@@ -41,8 +42,30 @@ function assertInsidePackage(packageDir: string, path: string): void {
   }
 }
 
-function forbiddenReason(name: string): string | undefined {
+function forbiddenReason(
+  name: string,
+  isDirectory = false,
+): string | undefined {
+  const normalized = normalizePath(name).toLowerCase();
+  const segments = normalized.split('/');
   const base = basename(name).toLowerCase();
+  if (
+    segments.some(
+      (segment) =>
+        /^(profiles?|browser[-_ ]?profile|user[-_ ]?data)$/.test(segment) ||
+        /^(chrome|chromium|edge)-(profile|user[-_ ]?data)/.test(segment),
+    )
+  ) {
+    return 'browser profile';
+  }
+  if (isDirectory) return undefined;
+  if (
+    /^(cookies|cookies-journal|login data|web data|history|local state)$/.test(
+      base,
+    )
+  ) {
+    return 'browser profile session data';
+  }
   if (base === '.env' || base.startsWith('.env.')) {
     return 'environment file';
   }
@@ -55,18 +78,18 @@ function forbiddenReason(name: string): string | undefined {
   if (/\.(log|zip|7z|tgz|tar|gz)$/.test(base)) {
     return 'log or diagnostic archive';
   }
-  if (/^(chrome|chromium|edge)-(profile|user-data)/.test(base)) {
-    return 'browser profile';
-  }
   return undefined;
 }
 
-function assertNoForbiddenPath(packageDir: string, path: string): void {
-  const reason = forbiddenReason(path);
+function assertNoForbiddenPath(
+  packageDir: string,
+  path: string,
+  isDirectory = false,
+): void {
+  const relativePath = toSafeRelative(packageDir, path);
+  const reason = forbiddenReason(relativePath, isDirectory);
   if (reason) {
-    throw new Error(
-      `forbidden ${reason} in package: ${toSafeRelative(packageDir, path)}`,
-    );
+    throw new Error(`forbidden ${reason} in package: ${relativePath}`);
   }
 }
 
@@ -88,6 +111,7 @@ function walkFiles(
     }
     assertInsidePackage(packageDir, path);
     if (entry.isDirectory()) {
+      assertNoForbiddenPath(packageDir, path, true);
       count += walkFiles(packageDir, path, onFile);
     } else if (entry.isFile()) {
       assertNoForbiddenPath(packageDir, path);
@@ -100,6 +124,8 @@ function walkFiles(
 
 interface PackageManifest {
   dependencies?: Record<string, string>;
+  main?: unknown;
+  bin?: string | Record<string, string>;
 }
 
 function readManifest(path: string, label: string): PackageManifest {
@@ -177,6 +203,50 @@ function verifyProductionGraph(
 
   visit(unpackedRoot, rootManifest.dependencies, 'the application');
 
+  const modulesDir = join(unpackedRoot, 'node_modules');
+  const criticalEntries = [
+    {
+      name: 'sdo_mcp',
+      entry: (manifest: PackageManifest) =>
+        typeof manifest.main === 'string' ? manifest.main : 'dist/index.js',
+      label: 'SDO MCP',
+    },
+    {
+      name: 'playwright',
+      entry: (manifest: PackageManifest) => {
+        const bins =
+          typeof manifest.bin === 'string'
+            ? [manifest.bin]
+            : Object.entries(manifest.bin ?? {})
+                .sort(([left], [right]) => left.localeCompare(right))
+                .map(([, path]) => path);
+        return bins[0];
+      },
+      label: 'Playwright CLI',
+    },
+    {
+      name: 'better-sqlite3',
+      entry: (manifest: PackageManifest) =>
+        typeof manifest.main === 'string' ? manifest.main : 'index.js',
+      label: 'better-sqlite3 entry',
+    },
+  ] as const;
+  for (const critical of criticalEntries) {
+    const moduleDir = join(modulesDir, critical.name);
+    const moduleLabel = normalizePath(relative(packageDir, moduleDir));
+    const manifest = readManifest(join(moduleDir, 'package.json'), moduleLabel);
+    const entry = critical.entry(manifest);
+    if (typeof entry !== 'string' || !entry.trim()) {
+      throw new Error(`missing ${critical.label} declaration: ${moduleLabel}`);
+    }
+    const entryPath = resolve(moduleDir, entry);
+    assertInsidePackage(packageDir, entryPath);
+    const entryLabel = normalizePath(relative(packageDir, entryPath));
+    if (!existsSync(entryPath) || !statSync(entryPath).isFile()) {
+      throw new Error(`missing ${critical.label}: ${entryLabel}`);
+    }
+  }
+
   const sqliteBuild = join(
     packageDir,
     UNPACKED_MODULES,
@@ -225,6 +295,13 @@ export async function verifyPackagedApplication(
     throw new Error('resources/app.asar cannot be read');
   }
   const entrySet = new Set(entries);
+  const directoryEntries = new Set<string>();
+  for (const entry of entries) {
+    const segments = entry.split('/');
+    for (let index = 1; index < segments.length; index += 1) {
+      directoryEntries.add(segments.slice(0, index).join('/'));
+    }
+  }
   for (const required of REQUIRED_ASAR_ENTRIES) {
     if (!entrySet.has(required)) {
       throw new Error(`missing ASAR entry: ${required}`);
@@ -234,7 +311,13 @@ export async function verifyPackagedApplication(
     if (entry.split('/').includes('..')) {
       throw new Error(`unsafe ASAR entry: ${entry}`);
     }
-    assertNoForbiddenPath(packageDir, entry);
+    const isDirectory = directoryEntries.has(entry);
+    const forbidden = forbiddenReason(entry, isDirectory);
+    if (forbidden) {
+      throw new Error(
+        `forbidden ${forbidden} in package: resources/app.asar/${entry}`,
+      );
+    }
     checkedFiles += 1;
   }
 

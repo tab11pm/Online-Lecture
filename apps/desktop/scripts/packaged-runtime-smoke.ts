@@ -4,10 +4,11 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  statSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { isAbsolute, join, relative, resolve, sep, win32 } from 'node:path';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 
@@ -63,9 +64,15 @@ export function createSmokeEnvironment(
 ): Record<string, string> {
   const env: Record<string, string> = { ELECTRON_RUN_AS_NODE: '1' };
   for (const key of PRESERVED_ENVIRONMENT) {
+    if (key === 'PATH' || key === 'Path') continue;
     const value = base[key];
     if (value !== undefined) env[key] = value;
   }
+  const systemRoot = base.SystemRoot ?? base.windir ?? 'C:\\Windows';
+  const systemPath =
+    platform === 'win32' ? win32.join(systemRoot, 'System32') : '/usr/bin:/bin';
+  env.PATH = systemPath;
+  if (platform === 'win32') env.Path = systemPath;
   env.DOTENV_CONFIG_PATH = platform === 'win32' ? 'NUL' : '/dev/null';
   env.DOTENV_CONFIG_QUIET = 'true';
   env.DOTENV_CONFIG_DEBUG = 'false';
@@ -173,14 +180,25 @@ function requirePath(path: string, label: string): void {
 }
 
 function resolvePlaywrightCli(unpackedRoot: string): string {
-  const candidates = [
-    join(unpackedRoot, 'node_modules', 'playwright', 'cli.js'),
-    join(unpackedRoot, 'node_modules', 'playwright-core', 'cli.js'),
-  ];
-  for (const candidate of candidates) {
-    if (existsSync(candidate)) return candidate;
+  const packageDir = join(unpackedRoot, 'node_modules', 'playwright');
+  requirePath(join(packageDir, 'package.json'), 'playwright/package.json');
+  const manifest = JSON.parse(
+    readFileSync(join(packageDir, 'package.json'), 'utf8'),
+  ) as { bin?: string | Record<string, string> };
+  const cli =
+    typeof manifest.bin === 'string'
+      ? manifest.bin
+      : Object.entries(manifest.bin ?? {}).sort(([left], [right]) =>
+          left.localeCompare(right),
+        )[0]?.[1];
+  if (typeof cli !== 'string' || !cli.trim()) {
+    throw new Error(
+      'packaged runtime is missing the Playwright CLI declaration',
+    );
   }
-  throw new Error('packaged runtime is missing the Playwright CLI');
+  const entry = resolve(packageDir, cli);
+  requireRuntimeEntry(unpackedRoot, entry, 'the Playwright CLI');
+  return entry;
 }
 
 function resolveSdoMcpEntry(unpackedRoot: string): string {
@@ -192,7 +210,39 @@ function resolveSdoMcpEntry(unpackedRoot: string): string {
   const main =
     typeof manifest.main === 'string' ? manifest.main : 'dist/index.js';
   const entry = join(packageDir, main);
-  requirePath(entry, 'the bundled SDO MCP entry');
+  requireRuntimeEntry(unpackedRoot, entry, 'the bundled SDO MCP entry');
+  return entry;
+}
+
+function requireRuntimeEntry(
+  unpackedRoot: string,
+  entry: string,
+  label: string,
+): void {
+  const relativePath = relative(unpackedRoot, entry);
+  if (
+    relativePath === '..' ||
+    relativePath.startsWith(`..${sep}`) ||
+    isAbsolute(relativePath)
+  ) {
+    throw new Error(`packaged runtime path escapes the package: ${label}`);
+  }
+  requirePath(entry, label);
+  if (!statSync(entry).isFile()) {
+    throw new Error(`packaged runtime is missing ${label}`);
+  }
+}
+
+function resolveSqliteEntry(unpackedRoot: string): string {
+  const packageDir = join(unpackedRoot, 'node_modules', 'better-sqlite3');
+  const manifestPath = join(packageDir, 'package.json');
+  requirePath(manifestPath, 'better-sqlite3/package.json');
+  const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    main?: unknown;
+  };
+  const main = typeof manifest.main === 'string' ? manifest.main : 'index.js';
+  const entry = resolve(packageDir, main);
+  requireRuntimeEntry(unpackedRoot, entry, 'the SQLite JavaScript entry');
   return entry;
 }
 
@@ -215,6 +265,7 @@ export async function smokePackagedRuntime(
   requirePath(nativePath, 'the native SQLite module');
   const playwrightCli = resolvePlaywrightCli(unpackedRoot);
   const sdoMcpEntry = resolveSdoMcpEntry(unpackedRoot);
+  const sqliteEntry = resolveSqliteEntry(unpackedRoot);
 
   const env = createSmokeEnvironment(process.platform);
   const timeoutMs = deps.timeoutMs ?? 30_000;
@@ -238,11 +289,11 @@ export async function smokePackagedRuntime(
       'utf8',
     );
 
-    await run(
-      input.executablePath,
-      [scriptPath, nativePath, join(unpackedRoot, 'index.js')],
-      { cwd: input.cwd, env, timeoutMs },
-    );
+    await run(input.executablePath, [scriptPath, nativePath, sqliteEntry], {
+      cwd: input.cwd,
+      env,
+      timeoutMs,
+    });
     await run(input.executablePath, [playwrightCli, '--version'], {
       cwd: input.cwd,
       env,

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, statSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { isAbsolute, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -35,7 +35,7 @@ export function resolveLaunchMode(
       'ONLINE_LECTURE_PACKAGED_EXECUTABLE must be an absolute path.',
     );
   }
-  if (!existsSync(configured)) {
+  if (!existsSync(configured) || !statSync(configured).isFile()) {
     throw new Error(
       'ONLINE_LECTURE_PACKAGED_EXECUTABLE does not point to an existing file.',
     );

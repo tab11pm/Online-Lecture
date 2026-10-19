@@ -1,13 +1,26 @@
 import { expect, it } from 'vitest';
-import { launchIsolatedElectron } from './support/electron-app.js';
+import { smokePackagedRuntime } from '../../scripts/packaged-runtime-smoke.js';
+import {
+  launchIsolatedElectron,
+  resolveLaunchMode,
+} from './support/electron-app.js';
+import { runPackagedRuntimeSmokeForE2E } from './support/packaged-runtime-smoke.js';
 
-// Packaged UI coverage reuses the four existing fake-session scenarios; this
-// opt-in check only asserts that the harness launched the real package.
+// This opt-in check runs the bundled runtime smoke before packaged UI checks.
 const packaged = process.env.ONLINE_LECTURE_PACKAGED_EXECUTABLE ? it : it.skip;
 
 packaged(
   'runs the packaged executable with its own application resources',
   async () => {
+    const executablePath = process.env.ONLINE_LECTURE_PACKAGED_EXECUTABLE;
+    if (!executablePath) throw new Error('packaged executable is required');
+    const mode = resolveLaunchMode(process.env, process.platform);
+    if (mode.kind !== 'packaged')
+      throw new Error('packaged executable is required');
+    await runPackagedRuntimeSmokeForE2E(
+      mode.executablePath,
+      smokePackagedRuntime,
+    );
     const isolated = await launchIsolatedElectron();
     try {
       const isPackaged = await isolated.app.evaluate(
