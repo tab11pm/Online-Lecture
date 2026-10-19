@@ -83,6 +83,81 @@ function run(jobId: string, status: Run['status']): Run {
 }
 
 describe('SqliteJobRepository schedule editing', () => {
+  it('edits only the selected pair when two imported pairs share a date', async () => {
+    const { store, jobs } = await setup();
+    const source = imported();
+    if (source.schedule.type !== 'imported')
+      throw new Error('Expected imported');
+    source.schedule.occurrences.push({
+      date: '2026-10-21',
+      joinAt: '12:00',
+      leaveAt: '13:35',
+    });
+    await jobs.save(source);
+    await jobs.editImportedTime(
+      {
+        jobId: source.id,
+        date: '2026-10-21',
+        occurrenceId: `${source.id}:2026-10-21T12:00:00.000+07:00`,
+        joinAt: '12:05',
+        leaveAt: '13:40',
+      },
+      NOW,
+    );
+    expect((await jobs.getById(source.id))?.schedule).toMatchObject({
+      occurrences: [
+        { joinAt: '10:00' },
+        { joinAt: '12:05', originalJoinAt: '12:00', edited: true },
+      ],
+    });
+    await jobs.mergeTimetableJobs([source], true);
+    expect((await jobs.getById(source.id))?.schedule).toMatchObject({
+      occurrences: [
+        { joinAt: '10:00' },
+        { joinAt: '12:05', originalJoinAt: '12:00', edited: true },
+      ],
+    });
+    store.close();
+  });
+
+  it('cancels a move without restoring the other pair on the same date', async () => {
+    const { store, jobs } = await setup();
+    const source = imported();
+    if (source.schedule.type !== 'imported')
+      throw new Error('Expected imported');
+    source.schedule.occurrences.push({
+      date: '2026-10-21',
+      joinAt: '12:00',
+      leaveAt: '13:35',
+    });
+    await jobs.save(source);
+    const replacementId = await jobs.reschedule(
+      {
+        jobId: source.id,
+        date: '2026-10-21',
+        occurrenceId: `${source.id}:2026-10-21T12:00:00.000+07:00`,
+        newDate: '2026-10-24',
+        newJoinAt: '12:00',
+        newLeaveAt: '13:35',
+      },
+      NOW,
+    );
+    const moved = await jobs.getById(source.id);
+    if (moved?.schedule.type !== 'imported')
+      throw new Error('Expected imported');
+    expect(moved.schedule.occurrences.map((entry) => entry.suppressed)).toEqual(
+      [undefined, true],
+    );
+    await jobs.cancelReschedule(replacementId, NOW);
+    expect((await jobs.getById(source.id))?.schedule).toMatchObject({
+      occurrences: [
+        { joinAt: '10:00' },
+        { joinAt: '12:00', suppressed: false },
+      ],
+    });
+    store.close();
+  });
+
   it('rejects an edit after a run started or join time arrived', async () => {
     const { store, jobs, runs } = await setup();
     await jobs.save(imported());

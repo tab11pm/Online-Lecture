@@ -238,21 +238,23 @@ describe('LectureService', () => {
     await expect(service.cancelReschedule(replacementId)).rejects.toThrow();
   });
 
-  it('hides only the selected imported date', async () => {
+  it('hides only the selected imported occurrence when two share a date', async () => {
     const job = jobAt(new Date(START.getTime() + 86_400_000), 60);
     if (job.schedule.type !== 'imported') throw new Error('Expected imported');
     job.schedule.occurrences.push({
-      date: '2026-10-17',
-      joinAt: '12:00',
-      leaveAt: '13:00',
+      date: '2026-10-16',
+      joinAt: '13:00',
+      leaveAt: '14:00',
     });
     await seed(job);
     const { service } = setup();
     await service.open();
-    await service.deleteLecture(job.id, '2026-10-16');
+    const second = service.getView().agenda.find((item) => item.joinAt === '13:00');
+    expect(second).toBeDefined();
+    await service.deleteLecture(job.id, second!.occurrenceId);
     expect(service.getView().agenda.map((item) => item.skipped)).toEqual([
-      true,
       false,
+      true,
     ]);
   });
 

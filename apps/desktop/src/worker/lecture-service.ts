@@ -333,23 +333,17 @@ export class LectureService {
     if (this.active) void this.repos?.loop.tick();
   }
 
-  async deleteLecture(jobId: string, date?: string): Promise<void> {
+  async deleteLecture(jobId: string, occurrenceId?: string): Promise<void> {
     const repos = this.requireRepos();
     const job = await repos.jobs.getById(jobId);
     if (!job) throw new Error('Lecture not found');
     if (job.source === 'timetable') {
-      if (job.schedule.type !== 'imported' || !date)
+      if (job.schedule.type !== 'imported' || !occurrenceId)
         throw new Error('Imported occurrence not found');
-      const entry = job.schedule.occurrences.find((item) => item.date === date);
-      if (!entry) throw new Error('Imported occurrence not found');
-      const start = DateTime.fromISO(`${date}T${entry.joinAt}`, {
-        zone: job.schedule.timezone,
-      });
-      if (!start.isValid) throw new Error('Imported occurrence not found');
-      await this.setSkipped(jobId, `${jobId}:${start.toISO()}`, true);
+      await this.setSkipped(jobId, occurrenceId, true);
       return;
     }
-    if (date || job.rescheduledFrom)
+    if (occurrenceId || job.rescheduledFrom)
       throw new Error('Manual lecture not found');
     const active = repos.runner.active;
     if (active?.jobId === jobId) await repos.runner.stop(active, 'manual');

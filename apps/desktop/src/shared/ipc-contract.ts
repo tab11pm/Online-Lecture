@@ -97,7 +97,7 @@ export interface DesktopApi {
     editImportedTime(input: EditImportedTimeInput): Promise<void>;
     reschedule(input: RescheduleInput): Promise<string>;
     cancelReschedule(jobId: string): Promise<void>;
-    deleteLecture(jobId: string, date?: string): Promise<void>;
+    deleteLecture(jobId: string, occurrenceId?: string): Promise<void>;
     onChanged(listener: (view: LecturesView) => void): () => void;
   };
   core: {

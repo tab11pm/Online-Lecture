@@ -34,6 +34,31 @@ function imported(): Job {
 }
 
 describe('schedule editing', () => {
+  it('edits the selected second occurrence on a shared date', () => {
+    const source = imported();
+    if (source.schedule.type !== 'imported')
+      throw new Error('Expected imported');
+    source.schedule.occurrences.splice(1, 0, {
+      date: '2026-10-21',
+      joinAt: '12:00',
+      leaveAt: '13:35',
+    });
+    const edited = editImportedTime(source, {
+      jobId: source.id,
+      date: '2026-10-21',
+      occurrenceId: `${source.id}:2026-10-21T12:00:00.000+07:00`,
+      joinAt: '12:05',
+      leaveAt: '13:40',
+    });
+    expect(edited.schedule).toMatchObject({
+      occurrences: [
+        { joinAt: '10:00' },
+        { joinAt: '12:05', originalJoinAt: '12:00', edited: true },
+        { date: '2026-10-28', joinAt: '10:00' },
+      ],
+    });
+  });
+
   it('edits one date without mutating its source and survives the next import', () => {
     const source = imported();
     const edited = editImportedTime(source, {

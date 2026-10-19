@@ -13,6 +13,7 @@ export interface ImportedOccurrence {
   date: string; // YYYY-MM-DD
   joinAt: string; // HH:MM
   leaveAt: string; // HH:MM
+  originalJoinAt?: string; // imported start time before a user edit
   room?: string;
   edited?: boolean;
   suppressed?: boolean;
@@ -56,7 +57,7 @@ export interface Job {
   enabled: boolean;
   source?: JobSource;
   title?: string;
-  rescheduledFrom?: { jobId: string; date: string };
+  rescheduledFrom?: { jobId: string; date: string; occurrenceId?: string };
   origin?: JobOrigin;
   schedule: Schedule;
   target: LectureTarget;

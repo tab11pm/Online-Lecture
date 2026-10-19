@@ -25,7 +25,7 @@ export type MainCommand =
   | { type: 'lectures.editImportedTime'; requestId: string; input: EditImportedTimeInput }
   | { type: 'lectures.reschedule'; requestId: string; input: RescheduleInput }
   | { type: 'lectures.cancelReschedule'; requestId: string; jobId: string }
-  | { type: 'lectures.deleteLecture'; requestId: string; jobId: string; date?: string }
+  | { type: 'lectures.deleteLecture'; requestId: string; jobId: string; occurrenceId?: string }
   | { type: 'system.resumed' }
   | { type: 'app.shutdown' };
 

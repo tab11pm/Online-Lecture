@@ -66,7 +66,7 @@ const api: DesktopApi = {
     editImportedTime: (input: EditImportedTimeInput) => ipcRenderer.invoke(CHANNELS.lectures.editImportedTime, input),
     reschedule: (input: RescheduleInput) => ipcRenderer.invoke(CHANNELS.lectures.reschedule, input),
     cancelReschedule: (jobId: string) => ipcRenderer.invoke(CHANNELS.lectures.cancelReschedule, jobId),
-    deleteLecture: (jobId: string, date?: string) => ipcRenderer.invoke(CHANNELS.lectures.deleteLecture, jobId, date),
+    deleteLecture: (jobId: string, occurrenceId?: string) => ipcRenderer.invoke(CHANNELS.lectures.deleteLecture, jobId, occurrenceId),
     onChanged: subscribe<LecturesView>(CHANNELS.lectures.changed),
   },
   core: {

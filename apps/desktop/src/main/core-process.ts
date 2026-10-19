@@ -222,8 +222,8 @@ export class CoreProcess {
     return this.requestLecture<void>({ type: 'lectures.cancelReschedule', jobId }, LECTURE_MUTATION_TIMEOUT_MS);
   }
 
-  deleteLecture(jobId: string, date?: string): Promise<void> {
-    return this.requestLecture<void>({ type: 'lectures.deleteLecture', jobId, ...(date ? { date } : {}) }, LECTURE_MUTATION_TIMEOUT_MS);
+  deleteLecture(jobId: string, occurrenceId?: string): Promise<void> {
+    return this.requestLecture<void>({ type: 'lectures.deleteLecture', jobId, ...(occurrenceId ? { occurrenceId } : {}) }, LECTURE_MUTATION_TIMEOUT_MS);
   }
 
   private requestLecture<T>(

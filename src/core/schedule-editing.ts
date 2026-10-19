@@ -4,6 +4,7 @@ import type { Job, Weekday } from './types.js';
 export interface EditImportedTimeInput {
   jobId: string;
   date: string;
+  occurrenceId?: string;
   joinAt: string;
   leaveAt: string;
 }
@@ -11,6 +12,7 @@ export interface EditImportedTimeInput {
 export interface RescheduleInput {
   jobId: string;
   date: string;
+  occurrenceId?: string;
   newDate: string;
   newJoinAt: string;
   newLeaveAt: string;
@@ -75,30 +77,36 @@ export function validateManualSchedule(
   interval(date, input.joinAt, input.leaveAt, SCHEDULE_TIMEZONE);
 }
 
-function importedEntry(
+export function importedEntry(
   job: Job,
   date: string,
+  occurrenceId?: string,
 ): { index: number; schedule: Extract<Job['schedule'], { type: 'imported' }> } {
   if (job.source !== 'timetable' || job.schedule.type !== 'imported') {
     throw new Error('Imported lecture not found');
   }
-  const index = job.schedule.occurrences.findIndex(
-    (entry) => entry.date === date,
-  );
-  if (
-    index < 0 ||
-    job.schedule.occurrences.some(
-      (entry, i) => i !== index && entry.date === date,
-    )
-  ) {
+  const matches = job.schedule.occurrences
+    .map((entry, index) => ({ entry, index }))
+    .filter(
+      ({ entry }) =>
+        entry.date === date &&
+        (occurrenceId === undefined ||
+          `${job.id}:${dateTime(entry.date, entry.joinAt, job.schedule.timezone).toISO()}` ===
+            occurrenceId),
+    );
+  if (matches.length !== 1) {
     throw new Error('Imported occurrence not found');
   }
-  return { index, schedule: job.schedule };
+  return { index: matches[0]!.index, schedule: job.schedule };
 }
 
 export function editImportedTime(job: Job, input: EditImportedTimeInput): Job {
   if (job.id !== input.jobId) throw new Error('Imported lecture not found');
-  const { index, schedule } = importedEntry(job, input.date);
+  const { index, schedule } = importedEntry(
+    job,
+    input.date,
+    input.occurrenceId,
+  );
   interval(input.date, input.joinAt, input.leaveAt, schedule.timezone);
   return {
     ...job,
@@ -110,6 +118,7 @@ export function editImportedTime(job: Job, input: EditImportedTimeInput): Job {
               ...entry,
               joinAt: input.joinAt,
               leaveAt: input.leaveAt,
+              originalJoinAt: entry.originalJoinAt ?? entry.joinAt,
               edited: true,
             }
           : { ...entry },
@@ -124,7 +133,11 @@ export function makeRescheduledJob(
   id: string,
 ): { source: Job; replacement: Job } {
   if (job.id !== input.jobId) throw new Error('Imported lecture not found');
-  const { index, schedule } = importedEntry(job, input.date);
+  const { index, schedule } = importedEntry(
+    job,
+    input.date,
+    input.occurrenceId,
+  );
   if (schedule.occurrences[index]?.suppressed)
     throw new Error('Imported occurrence is already hidden');
   interval(input.newDate, input.newJoinAt, input.newLeaveAt, schedule.timezone);
@@ -145,7 +158,11 @@ export function makeRescheduledJob(
       job.origin?.discipline ??
       (job.target.type === 'search' ? job.target.courseName : undefined) ??
       job.id,
-    rescheduledFrom: { jobId: job.id, date: input.date },
+    rescheduledFrom: {
+      jobId: job.id,
+      date: input.date,
+      ...(input.occurrenceId ? { occurrenceId: input.occurrenceId } : {}),
+    },
     schedule: {
       type: 'once',
       date: input.newDate,
