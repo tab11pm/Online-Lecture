@@ -2,7 +2,12 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { initializeRuntimeEnvironment } from '../../src/main/runtime-policy.js';
+import { BrowserController } from '../../src/main/browser-controller.js';
+import { CoreProcess, type CoreChild } from '../../src/main/core-process.js';
+import {
+  externalBrowserChannelForRuntime,
+  initializeRuntimeEnvironment,
+} from '../../src/main/runtime-policy.js';
 
 let root: string;
 
@@ -24,6 +29,41 @@ function policyEnv(isPackaged: boolean, overrides: NodeJS.ProcessEnv = {}) {
     platform: 'win32' as const,
     ...overrides,
   };
+}
+
+function startCoreAndCaptureForkArgs(
+  runtimeMode: 'development' | 'packaged',
+  externalChannel?: string,
+): string[] {
+  let args: string[] = [];
+  const child: CoreChild = {
+    on: () => child,
+    postMessage: () => undefined,
+    kill: () => true,
+  };
+  const core = new CoreProcess(
+    {
+      entryPath: '/entry.js',
+      userDataDir: '/user-data',
+      initialBrowserChoice: 'chromium',
+      initialShowLectureWindow: true,
+      runtimeMode,
+      ...(externalChannel === undefined ? {} : { externalChannel }),
+      fork: (_entryPath, startupArgs) => {
+        args = startupArgs;
+        return child;
+      },
+    },
+    {
+      onChanged: () => undefined,
+      onStatusChanged: () => undefined,
+      onNotification: () => undefined,
+      onLecturesChanged: () => undefined,
+    },
+  );
+
+  core.start();
+  return args;
 }
 
 describe('initializeRuntimeEnvironment', () => {
@@ -93,4 +133,78 @@ describe('initializeRuntimeEnvironment', () => {
 
     expect('SDO_BROWSER_CHANNEL' in env).toBe(false);
   });
+
+  it.each(['msedge', ''])(
+    'ignores inherited SDO_BROWSER_CHANNEL=%j for packaged browser policy',
+    async (inheritedChannel) => {
+      const env: NodeJS.ProcessEnv = {
+        SDO_BROWSER_CHANNEL: inheritedChannel,
+      };
+      const mode = initializeRuntimeEnvironment(policyEnv(true), env);
+      const externalChannel = externalBrowserChannelForRuntime(mode, env);
+      const settings = {
+        read: async () => ({ autostart: false, browser: 'chromium' as const }),
+        update: async () => ({
+          autostart: false,
+          browser: 'chromium' as const,
+        }),
+      };
+      const installer = {
+        getState: async () => ({ status: 'available' as const }),
+        install: async () => ({ status: 'available' as const }),
+      };
+      const controller = new BrowserController({
+        settings,
+        installer,
+        core: { setBrowserChoice: () => undefined },
+        platform: 'win32',
+        externalChannel,
+      });
+
+      expect(startCoreAndCaptureForkArgs(mode, externalChannel)).toEqual([
+        '/user-data',
+        '0',
+        '',
+        'packaged',
+      ]);
+      expect(await controller.getBrowser()).toEqual({
+        choice: 'chromium',
+        install: { status: 'available' },
+      });
+      await controller.assertReady();
+    },
+  );
+
+  it.each(['msedge', ''])(
+    'retains development SDO_BROWSER_CHANNEL=%j for the browser controller',
+    async (configuredChannel) => {
+      const env: NodeJS.ProcessEnv = { SDO_BROWSER_CHANNEL: configuredChannel };
+      const mode = initializeRuntimeEnvironment(policyEnv(false), env);
+      const externalChannel = externalBrowserChannelForRuntime(mode, env);
+      const settings = {
+        read: async () => ({ autostart: false, browser: 'chromium' as const }),
+        update: async () => ({
+          autostart: false,
+          browser: 'chromium' as const,
+        }),
+      };
+      const installer = {
+        getState: async () => ({ status: 'available' as const }),
+        install: async () => ({ status: 'available' as const }),
+      };
+      const controller = new BrowserController({
+        settings,
+        installer,
+        core: { setBrowserChoice: () => undefined },
+        platform: 'win32',
+        externalChannel,
+      });
+
+      expect(await controller.getBrowser()).toEqual({
+        choice: 'chromium',
+        install: { status: 'available' },
+        externalChannel: configuredChannel,
+      });
+    },
+  );
 });

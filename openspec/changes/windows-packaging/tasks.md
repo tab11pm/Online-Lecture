@@ -23,5 +23,5 @@
 ## 5. Проверка
 
 - [x] 5.1 Добавить packaged fake-session E2E и executable runtime smoke (план Task 5). Smoke подключён к явному packaged E2E до проверки GUI; ошибки завершают тест. Фактический Windows-прогон остаётся в 5.3.
-- [x] 5.2 Пройти доступные unit/build/dev Electron-гейты и обновить handoff (план Task 5). 2026-10-20: 328 core + 401 desktop PASS, dev Electron 4/4, typecheck и build PASS; Windows packaged case не запускался.
+- [x] 5.2 Пройти доступные unit/build/dev Electron-гейты и обновить handoff (план Task 5). 2026-10-20: 328 core + 401 desktop PASS, dev Electron 4/4, typecheck и build PASS; Windows packaged case не запускался. В отдельном policy-fix pass добавлены regression tests для packaged browser override и проверена генерация NSIS installer/uninstaller локальным electron-builder 26 compiler.
 - [ ] 5.3 Фактически проверить чистую Windows: установка, runtime, браузеры, DPAPI, трей, автозапуск, обновление и uninstall (план Task 5).

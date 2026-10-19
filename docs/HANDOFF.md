@@ -1,5 +1,15 @@
 # Handoff — Online Lecture: автоимпорт расписания ТУСУР
 
+## Windows: закрытие двух замечаний policy review (2026-10-20)
+
+Второй policy-fix pass закрыл замечания об assisted NSIS per-user-only и packaged browser override. Browser channel теперь захватывается отдельной runtime-policy функцией только в development; packaged controller и worker получают `undefined`, а сохранённый выбор Chromium доходит до MCP как пустой `SDO_BROWSER_CHANNEL`. Регрессия использует настоящий runtime policy и BrowserController для унаследованных `msedge` и пустого значения; development сохраняет оба override.
+
+NSIS сохраняет assisted-установщик. Ранний `customInstallMode` сводит мастер к текущему пользователю; проверка политики завершает явный `/allusers` с кодом ошибки без UAC и до секций установки или удаления. `customHeader` подключает переопределение макроса `initMultiUser` для последующего раскрытия `.onInit` и `un.onInit`. Шаблон всё ещё может выполнить `SetOutPath`, включить журналирование или проверить работающий процесс до проверки политики; гарантии отсутствия этих предварительных действий нет. Файлы приложения и его регистрационные записи при отклонённом вызове не должны изменяться. Правила сохранения пользовательских данных при удалении и очистки автозапуска оставлены прежними. Установленные шаблоны electron-builder 26 проверены; сгенерированные установщик и деинсталлятор собраны локальным компилятором NSIS на синтетическом временном приложении.
+
+Целевые тесты: 57 PASS; усиленная проверка runtime-policy/CoreProcess — 44 PASS. Два новых packaged-сценария сначала падали на унаследованных `externalChannel='msedge'`/`''`, затем прошли после исправления. Аргументы worker проверяются через настоящий `CoreProcess.start()` и вызов `fork`. Независимое ревью принято после уточнения границ гарантии `/allusers`.
+
+Итоговые проверки Codex: core 328 PASS; desktop 426 PASS и 5 opt-in SKIP с `--no-file-parallelism`; `npm run build` и production-сборка desktop PASS; ESLint, Prettier и `git diff --check` PASS. Известный таймаут параллельного renderer-теста из предыдущего этапа не исправлялся. Компиляция NSIS подтверждает синтаксис и раскрытие макросов, но не поведение Windows. Все новые проверки на чистой Windows из `docs/windows-smoke.md` остаются невыполненными; установка, тихий запуск, удаление, UAC и GUI на Windows не запускались. Реальные SSO/BBB не использовались, скачиваний и изменений `node_modules` не было; `online-lecture-source.zip` сохранён.
+
 ## Исправления трёх замечаний упаковки под контролем Codex (2026-10-20)
 
 По просьбе пользователя реализацию выполнила GPT-6 Luna; отдельная Luna проверила изменения, Codex контролировал процесс и запускал общие проверки. Добавлены проверки обязательных runtime entry-файлов MCP/Playwright/SQLite и выхода их путей за пакет, обнаружение browser profile/session data в ASAR и распакованных ресурсах, вызов настоящего runtime smoke из opt-in packaged E2E с изолированным cwd и системным PATH. Фикстуры не содержат реальных сессий. Исправлены найденные при контроле побочные эффекты: чистый пакет под родительским каталогом `profiles` разрешён, исходники `undici/lib/web/cookies` разрешены, Chromium/Edge profile trees с произвольными LevelDB-файлами отклоняются. Путь packaged executable должен указывать на файл.
@@ -12,7 +22,7 @@
 
 Перечитан текущий HEAD `68e6b94` и выполнены доступные проверки без изменения production-кода. Итоговый `npm test`: 328 core + 401 desktop PASS (5 opt-in SKIP); core/desktop typecheck и production build PASS. Dev Electron E2E с ранее установленными браузерами (`PLAYWRIGHT_BROWSERS_PATH=/tmp/online-lecture-playwright-browsers`) прошли 4/4; packaged Windows case пропущен. Прежний blocker отсутствующего Chromium для dev E2E снят. Единичный renderer timeout в первом параллельном прогоне не повторился отдельно и в двух последующих suite-прогонах.
 
-Есть незакрытые замечания для DeepSeek: package validator принимает profile/Cookies и отсутствующие MCP/CLI entry-файлы; executable smoke существует, но не подключён к настоящему opt-in запуску; NSIS не гарантирует per-user-only; packaged startup сохраняет внешний browser override вопреки плану. Подробности и воспроизведения: `docs/reviews/2026-10-20-windows-packaging.md`. Linux-гейты не означают принятую Windows-упаковку. Windows-артефакт, установка и runtime на Windows ещё не проверены. Архив `online-lecture-source.zip` не трогать.
+Этот исторический review-state позже исправлен: package validator теперь проверяет профили и обязательные runtime entry-файлы, executable smoke подключён к opt-in packaged E2E, NSIS ограничен per-user режимом, а packaged browser override отключён. Подробности: `docs/reviews/2026-10-20-windows-packaging.md`. Linux-гейты не означают принятую Windows-упаковку. Windows-артефакт, установка и runtime на Windows ещё не проверены. Архив `online-lecture-source.zip` не трогать.
 
 ## Windows: реализация упаковки (2026-10-19)
 

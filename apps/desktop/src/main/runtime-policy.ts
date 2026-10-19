@@ -15,6 +15,17 @@ export interface RuntimeEnvironmentInput {
 }
 
 /**
+ * External browser channels are developer overrides. Packaged browser choice
+ * comes from persisted app settings and must ignore inherited process env.
+ */
+export function externalBrowserChannelForRuntime(
+  mode: RuntimeMode,
+  env: NodeJS.ProcessEnv,
+): string | undefined {
+  return mode === 'development' ? env.SDO_BROWSER_CHANNEL : undefined;
+}
+
+/**
  * Establishes the trusted runtime mode before anything else starts.
  *
  * Development keeps reading `.env` files and honours an explicitly configured

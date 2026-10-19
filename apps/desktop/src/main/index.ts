@@ -22,7 +22,10 @@ import { registerIpc } from './ipc.js';
 import { applyDesktopServerDefaults } from './load-env.js';
 import { createLoginHandler } from './login-handler.js';
 import { resolveAppPaths, resolveDataRoot } from './paths.js';
-import { initializeRuntimeEnvironment } from './runtime-policy.js';
+import {
+  externalBrowserChannelForRuntime,
+  initializeRuntimeEnvironment,
+} from './runtime-policy.js';
 import { createSafeStorageBackend } from './safe-storage-backend.js';
 import { SecretStore } from './secret-store.js';
 import { SettingsStore } from './settings-store.js';
@@ -45,7 +48,10 @@ const runtimeMode = initializeRuntimeEnvironment(
   },
   process.env,
 );
-const externalBrowserChannel = process.env.SDO_BROWSER_CHANNEL;
+const externalBrowserChannel = externalBrowserChannelForRuntime(
+  runtimeMode,
+  process.env,
+);
 
 const startHidden = process.argv.includes('--hidden');
 

@@ -7,6 +7,8 @@
 
 **Обновление после ревью:** Luna 6 исправила три замечания о runtime entry-файлах, подключении executable smoke и browser profiles. Исправления прошли независимое ревью и два уточнения фильтра: легитимный `undici/lib/web/cookies` допускается, а Chromium/Edge profile trees с произвольными LevelDB-файлами отклоняются. Дополнительные замечания NSIS per-user-only и packaged browser override из этого документа в эти правки не входят и остаются открытыми. Исходное ревью ниже описывает состояние `68e6b94`; Windows-приёмка по-прежнему не выполнена.
 
+**Статус после policy-fix pass (2026-10-20):** ещё два замечания ниже закрыты в коде. Browser override теперь захватывается только для development runtime; regression cases для packaged `msedge` и пустого channel проходят через настоящий runtime policy и BrowserController. NSIS сохраняет assisted installer и принудительно выбирает текущего пользователя; явный `/allusers` завершается до install/uninstall section и возможной elevation без изменения application payload или его install/uninstall registration. Предварительный `SetOutPath`, logging и проверка работающего приложения могут выполняться до guard. Для uninstaller `initMultiUser` заменён через поддерживаемый `customHeader` include hook, потому что шаблон вызывает его до `customUnInit`. Реальный electron-builder 26 вызов собрал временные synthetic installer и uninstaller с установленным NSIS compiler. Это проверяет compile-time hook expansion, не запуск Windows установщика. Оба замечания считаются разрешёнными на уровне Linux-кода; все новые Windows acceptance cases в `docs/windows-smoke.md` остаются незапущенными.
+
 ## Замечания
 
 ### P1: Проверка пакета пропускает содержимое browser profile
@@ -31,13 +33,13 @@
 
 Следовательно, указанные E2E-команды не выполняют настоящий MCP-handshake/Playwright CLI через упакованный Electron. Нужно вызвать smoke из явного opt-in packaged-теста либо добавить документированный CLI, требующий абсолютный путь к настоящему exe. В этом сценарии убрать developer Node из PATH, не только NODE_PATH; тестировать timeout/cleanup. Нельзя закрывать 5.1 только по mocked unit-тестам.
 
-### P2: Assisted NSIS не ограничен только текущим пользователем
+### P2: Assisted NSIS не ограничен только текущим пользователем — разрешено в коде, Windows pending
 
 В `apps/desktop/electron-builder.yml:39` заданы `oneClick: false`, `perMachine: false`, `allowElevation: false`. Для assisted NSIS такое сочетание оставляет страницу выбора режима, а `allowElevation: false` лишь запрещает запрос повышения прав. В установленном шаблоне `multiUserUi.nsh` выбор all-users остаётся доступным, если процесс уже запущен администратором. Такое поведение также описано в [документации electron-builder 26](https://www.electron.build/v26/docs/nsis/).
 
 Нужно явно обеспечить per-user-only поведение, в том числе для уже elevated запуска и аргументов установщика. Существующий `installer.nsh` содержит только `customUnInstall`, ограничения install mode нет. В согласованном плане сочетание опций также было недостаточным: при исправлении ориентироваться на требование per-user из дизайна, а не сохранять ошибку плана. Фактическая проверка на Windows ещё обязательна.
 
-### P2: Packaged-выбор браузера всё ещё переопределяется внешним channel
+### P2: Packaged-выбор браузера всё ещё переопределяется внешним channel — исправлено
 
 `apps/desktop/src/main/index.ts:48` захватывает `process.env.SDO_BROWSER_CHANNEL` независимо от `runtimeMode`, затем передаёт его controller/worker. План Task 1 требует захватывать этот override только в development.
 
