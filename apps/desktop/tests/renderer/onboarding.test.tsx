@@ -64,6 +64,11 @@ const fake = vi.hoisted(() => {
     return () => browserListeners.delete(listener);
   });
   const api: DesktopApi = {
+    journal: {
+      list: vi.fn(async () => ({ items: [] })),
+      consumeOpenRequest: vi.fn(async () => false),
+      onOpen: vi.fn(() => () => undefined),
+    },
     onboarding: { getState, login, openManualSso, checkSession, onChanged },
     app: {
       getBrowser,

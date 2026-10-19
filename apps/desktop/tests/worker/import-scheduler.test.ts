@@ -42,6 +42,7 @@ function setup(
     return next;
   });
   const onAuthRequired = vi.fn();
+  const onFailure = vi.fn();
   const scheduler = new ImportScheduler({
     runImport: runImport as never,
     isLectureActive: () => state.active,
@@ -49,8 +50,9 @@ function setup(
     now: () => new Date(),
     onView: (v) => views.push(v),
     onAuthRequired,
+    onFailure,
   });
-  return { scheduler, runImport, views, state, onAuthRequired };
+  return { scheduler, runImport, views, state, onAuthRequired, onFailure };
 }
 
 describe('ImportScheduler', () => {
@@ -103,17 +105,19 @@ describe('ImportScheduler', () => {
   });
 
   it('retries a failed import after one hour, not sooner', async () => {
-    const { scheduler, runImport } = setup({
+    const { scheduler, runImport, onFailure } = setup({
       results: [{ status: 'failed', message: 'boom' }, completed()],
     });
     scheduler.start('login');
     await vi.advanceTimersByTimeAsync(0);
     expect(scheduler.view).toMatchObject({ status: 'failed', message: 'boom' });
+    expect(onFailure).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(RETRY_MS - 1);
     expect(runImport).toHaveBeenCalledTimes(1);
     await vi.advanceTimersByTimeAsync(1);
     expect(runImport).toHaveBeenCalledTimes(2);
     expect(scheduler.view.status).toBe('done');
+    expect(onFailure).toHaveBeenCalledTimes(1);
     scheduler.stop();
   });
 

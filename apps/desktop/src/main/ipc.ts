@@ -35,6 +35,8 @@ export const INVOKE_CHANNELS = [
   CHANNELS.lectures.reschedule,
   CHANNELS.lectures.cancelReschedule,
   CHANNELS.lectures.deleteLecture,
+  CHANNELS.journal.list,
+  CHANNELS.journal.consumeOpenRequest,
   CHANNELS.core.getStatus,
   CHANNELS.core.start,
   CHANNELS.core.stop,
@@ -92,6 +94,24 @@ function validateLectureArgs(channel: string, args: unknown[]): void {
   const fail = () => {
     throw new Error('Некорректные данные пары.');
   };
+  if (channel === CHANNELS.journal.list) {
+    if (
+      args.length < 1 ||
+      args.length > 2 ||
+      (args[0] !== 'all' && args[0] !== 'errors') ||
+      (args[1] !== undefined &&
+        (typeof args[1] !== 'string' ||
+          args[1].length === 0 ||
+          args[1].length > 512))
+    ) {
+      throw new Error('Некорректный запрос журнала.');
+    }
+    return;
+  }
+  if (channel === CHANNELS.journal.consumeOpenRequest) {
+    if (args.length !== 0) throw new Error('Некорректный запрос журнала.');
+    return;
+  }
   if (
     channel === CHANNELS.lectures.resolveManualTarget ||
     channel === CHANNELS.lectures.cancelReschedule

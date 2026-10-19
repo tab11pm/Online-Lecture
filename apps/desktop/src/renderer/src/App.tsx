@@ -6,10 +6,30 @@ import { CredentialsForm } from './components/CredentialsForm';
 import { BrowserChoice } from './components/BrowserChoice';
 import { ManualSsoPanel } from './components/ManualSsoPanel';
 import { MainScreen } from './components/MainScreen';
+import { JournalScreen } from './components/JournalScreen';
 
 export function App() {
   const [state, setState] = useState<OnboardingState>({ phase: 'welcome' });
   const [actionError, setActionError] = useState<string>();
+  const [journalOpen, setJournalOpen] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = desktop.journal.onOpen(() => {
+      setJournalOpen(true);
+      void desktop.journal.consumeOpenRequest().catch(() => undefined);
+    });
+    void desktop.journal
+      .consumeOpenRequest()
+      .then((pending) => {
+        if (active && pending) setJournalOpen(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -51,6 +71,10 @@ export function App() {
         error instanceof Error ? error.message : 'Не удалось проверить вход.',
       );
     });
+  }
+
+  if (journalOpen && state.phase !== 'session_ready') {
+    return <JournalScreen onBack={() => setJournalOpen(false)} />;
   }
 
   switch (state.phase) {
@@ -110,7 +134,15 @@ export function App() {
       return (
         <>
           {actionError ? <p role="alert">{actionError}</p> : null}
-          <MainScreen onCheckSession={handleCheckSession} />
+          <div hidden={journalOpen}>
+            <MainScreen
+              onCheckSession={handleCheckSession}
+              onOpenJournal={() => setJournalOpen(true)}
+            />
+          </div>
+          {journalOpen ? (
+            <JournalScreen onBack={() => setJournalOpen(false)} />
+          ) : null}
         </>
       );
     case 'failed':

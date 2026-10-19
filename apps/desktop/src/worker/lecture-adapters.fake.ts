@@ -143,6 +143,11 @@ export function createFakeLectureAdapters(now: () => Date): LectureAdapters {
         return result(run);
       }
       let run = transitionRun(claimed, 'joining', stamp());
+      if (process.env.ONLINE_LECTURE_FAKE_RUN_FAILURE === '1') {
+        run = transitionRun(run, 'failed', stamp());
+        await runs.update(run);
+        return result(run);
+      }
       run = transitionRun(run, 'connected', stamp());
       await runs.update(run);
       await waitForAbort(signal);

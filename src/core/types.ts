@@ -95,6 +95,7 @@ export interface Run {
   occurrenceId: string;
   status: RunStatus;
   completionReason?: CompletionReason;
+  failureCode?: 'retries_exhausted';
   createdAt: string;
   updatedAt: string;
 }

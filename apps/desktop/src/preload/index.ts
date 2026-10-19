@@ -9,8 +9,13 @@ import type {
 } from '../shared/ipc-contract.js';
 import type { OnboardingState } from '../shared/onboarding.js';
 import type { LecturesView } from '../shared/lectures.js';
+import type { JournalFilter } from '../shared/journal.js';
 import type { BrowserChoice, BrowserView } from '../shared/browser-choice.js';
-import type { EditImportedTimeInput, ManualScheduleInput, RescheduleInput } from '@core/core/schedule-editing.js';
+import type {
+  EditImportedTimeInput,
+  ManualScheduleInput,
+  RescheduleInput,
+} from '@core/core/schedule-editing.js';
 
 function subscribe<T>(
   channel: string,
@@ -61,12 +66,21 @@ const api: DesktopApi = {
         occurrenceId,
         skipped,
       ),
-    resolveManualTarget: (query: string) => ipcRenderer.invoke(CHANNELS.lectures.resolveManualTarget, query),
-    saveManual: (input: { candidateId: string; title: string; schedule: ManualScheduleInput }) => ipcRenderer.invoke(CHANNELS.lectures.saveManual, input),
-    editImportedTime: (input: EditImportedTimeInput) => ipcRenderer.invoke(CHANNELS.lectures.editImportedTime, input),
-    reschedule: (input: RescheduleInput) => ipcRenderer.invoke(CHANNELS.lectures.reschedule, input),
-    cancelReschedule: (jobId: string) => ipcRenderer.invoke(CHANNELS.lectures.cancelReschedule, jobId),
-    deleteLecture: (jobId: string, occurrenceId?: string) => ipcRenderer.invoke(CHANNELS.lectures.deleteLecture, jobId, occurrenceId),
+    resolveManualTarget: (query: string) =>
+      ipcRenderer.invoke(CHANNELS.lectures.resolveManualTarget, query),
+    saveManual: (input: {
+      candidateId: string;
+      title: string;
+      schedule: ManualScheduleInput;
+    }) => ipcRenderer.invoke(CHANNELS.lectures.saveManual, input),
+    editImportedTime: (input: EditImportedTimeInput) =>
+      ipcRenderer.invoke(CHANNELS.lectures.editImportedTime, input),
+    reschedule: (input: RescheduleInput) =>
+      ipcRenderer.invoke(CHANNELS.lectures.reschedule, input),
+    cancelReschedule: (jobId: string) =>
+      ipcRenderer.invoke(CHANNELS.lectures.cancelReschedule, jobId),
+    deleteLecture: (jobId: string, occurrenceId?: string) =>
+      ipcRenderer.invoke(CHANNELS.lectures.deleteLecture, jobId, occurrenceId),
     onChanged: subscribe<LecturesView>(CHANNELS.lectures.changed),
   },
   core: {
@@ -75,6 +89,13 @@ const api: DesktopApi = {
     stop: () => ipcRenderer.invoke(CHANNELS.core.stop),
     onStatusChanged: subscribe<CoreStatus>(CHANNELS.core.statusChanged),
     onNotification: subscribe<CoreNotification>(CHANNELS.core.notification),
+  },
+  journal: {
+    list: (filter: JournalFilter, cursor?: string) =>
+      ipcRenderer.invoke(CHANNELS.journal.list, filter, cursor),
+    consumeOpenRequest: () =>
+      ipcRenderer.invoke(CHANNELS.journal.consumeOpenRequest),
+    onOpen: subscribe<void>(CHANNELS.journal.open),
   },
 };
 

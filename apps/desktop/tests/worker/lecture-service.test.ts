@@ -58,6 +58,7 @@ function fakeLog() {
 function setup(overrides: Partial<LectureAdapters> = {}, log?: CoreLog) {
   const views: LecturesView[] = [];
   const onAuthRequired = vi.fn();
+  const onJournalEvent = vi.fn();
   const fake = createFakeLectureAdapters(() => clock);
   const adapters: LectureAdapters = { ...fake, ...overrides };
   const service = new LectureService({
@@ -66,11 +67,12 @@ function setup(overrides: Partial<LectureAdapters> = {}, log?: CoreLog) {
     now: () => clock,
     onView: (view) => views.push(view),
     onAuthRequired,
+    onJournalEvent,
     log,
   });
   services.push(service);
   const last = (): LecturesView | undefined => views.at(-1);
-  return { service, views, last, onAuthRequired, fake };
+  return { service, views, last, onAuthRequired, onJournalEvent, fake };
 }
 
 async function withStore<T>(
@@ -138,6 +140,56 @@ async function connected(last: () => LecturesView | undefined) {
 }
 
 describe('LectureService', () => {
+  it('records one failed import attempt without exposing its error text', async () => {
+    const { service, onJournalEvent, last } = setup({
+      runImport: async () => ({
+        status: 'failed',
+        message: 'secret https://sdo.tusur.ru/?token=abc',
+      }),
+    });
+    await service.open();
+    service.activate('login');
+    await vi.waitFor(() => expect(last()?.import.status).toBe('failed'));
+    await vi.waitFor(() => expect(onJournalEvent).toHaveBeenCalledTimes(1));
+
+    expect((await service.listJournalPage('errors')).items).toEqual([
+      expect.objectContaining({ status: 'import_error' }),
+    ]);
+    expect(JSON.stringify(await service.listJournalPage('errors'))).not.toMatch(
+      /sdo\.tusur|token=abc|secret/,
+    );
+  });
+
+  it('records ambiguous lookup once per request with a safe title', async () => {
+    const { service, onJournalEvent } = setup({
+      resolveManualTarget: async () => ({
+        status: 'ambiguous',
+        candidates: [
+          {
+            id: '2',
+            name: 'Лекция',
+            type: 'lecture',
+            courseUrl: 'https://sdo.tusur.ru/course/view.php?id=1',
+            activityUrl:
+              'https://sdo.tusur.ru/mod/bigbluebuttonbn/view.php?id=2',
+          },
+        ],
+      }),
+    });
+    await service.open();
+    await service.resolveManualTarget(
+      'https://sdo.tusur.ru/course/view.php?id=1',
+    );
+    await service.resolveManualTarget(
+      'https://sdo.tusur.ru/course/view.php?id=1',
+    );
+
+    expect(onJournalEvent).toHaveBeenCalledTimes(2);
+    expect((await service.listJournalPage('all')).items).toHaveLength(2);
+    expect(JSON.stringify(await service.listJournalPage('all'))).not.toMatch(
+      /sdo\.tusur|course\/view/,
+    );
+  });
   it('labels legacy jobs without a source as manual', async () => {
     const legacy = jobAt(new Date(START.getTime() + 86_400_000), 60);
     delete legacy.source;
@@ -249,7 +301,9 @@ describe('LectureService', () => {
     await seed(job);
     const { service } = setup();
     await service.open();
-    const second = service.getView().agenda.find((item) => item.joinAt === '13:00');
+    const second = service
+      .getView()
+      .agenda.find((item) => item.joinAt === '13:00');
     expect(second).toBeDefined();
     await service.deleteLecture(job.id, second!.occurrenceId);
     expect(service.getView().agenda.map((item) => item.skipped)).toEqual([
@@ -412,13 +466,17 @@ describe('LectureService', () => {
       };
       await runs.getOrCreate(run);
     });
-    const { service } = setup();
+    const { service, onJournalEvent } = setup();
     await service.open();
     const stored = await withStore(({ runs }) => runs.listAll());
     expect(stored[0]).toMatchObject({
       status: 'failed',
       completionReason: 'error',
     });
+    expect((await service.listJournalPage('errors')).items).toEqual([
+      expect.objectContaining({ status: 'failed' }),
+    ]);
+    expect(onJournalEvent).not.toHaveBeenCalled();
   });
 
   it('imports after login activation and publishes the agenda', async () => {
@@ -456,7 +514,7 @@ describe('LectureService', () => {
   });
 
   it('stopCurrent ends the run as manual and publishes lastRun', async () => {
-    const { service, last } = setup();
+    const { service, last, onJournalEvent } = setup();
     await service.open();
     service.activate('login');
     await connected(last);
@@ -469,6 +527,18 @@ describe('LectureService', () => {
       }),
     );
     expect(last()?.current).toBeUndefined();
+    expect((await service.listJournalPage('all')).items).toEqual([
+      expect.objectContaining({
+        status: 'completed',
+        title: 'Демонстрационная лекция',
+      }),
+    ]);
+    expect(onJournalEvent).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'lecture_finished',
+        title: 'Демонстрационная лекция',
+      }),
+    );
   });
 
   it('skipping the running occurrence stops it first', async () => {

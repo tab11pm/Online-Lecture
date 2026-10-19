@@ -49,6 +49,7 @@ function createProcess({ autoReady = true } = {}) {
   const onStatusChanged = vi.fn();
   const onNotification = vi.fn();
   const onLecturesChanged = vi.fn();
+  const onJournalEvent = vi.fn();
   const core = new CoreProcess(
     {
       entryPath: '/entry.js',
@@ -56,7 +57,13 @@ function createProcess({ autoReady = true } = {}) {
       initialShowLectureWindow: true,
       fork: () => fake.child,
     },
-    { onChanged, onStatusChanged, onNotification, onLecturesChanged },
+    {
+      onChanged,
+      onStatusChanged,
+      onNotification,
+      onLecturesChanged,
+      onJournalEvent,
+    },
   );
   if (autoReady) {
     core.start();
@@ -68,6 +75,7 @@ function createProcess({ autoReady = true } = {}) {
     onStatusChanged,
     onNotification,
     onLecturesChanged,
+    onJournalEvent,
     ...fake,
   };
 }
@@ -93,6 +101,32 @@ afterEach(() => {
 });
 
 describe('CoreProcess request bridge', () => {
+  it('rejects a pending journal page when the worker exits', async () => {
+    const { core, emitExit, posted } = createProcess();
+    const pending = core.listJournalPage('errors');
+    expect(posted).toContainEqual(
+      expect.objectContaining({ type: 'journal.list', filter: 'errors' }),
+    );
+
+    emitExit(1);
+
+    await expect(pending).rejects.toThrow(
+      'Процесс ядра неожиданно завершился.',
+    );
+  });
+
+  it('forwards only a typed new journal event', () => {
+    const { emitMessage, onJournalEvent } = createProcess();
+    emitMessage({
+      type: 'journal.event',
+      event: { id: 1, code: 'login_succeeded', title: 'Приложение' },
+    });
+    expect(onJournalEvent).toHaveBeenCalledWith({
+      id: 1,
+      code: 'login_succeeded',
+      title: 'Приложение',
+    });
+  });
   it('sends the initial browser choice before a queued session check', () => {
     const fake = createFakeChild();
     const core = new CoreProcess(
@@ -306,7 +340,11 @@ describe('CoreProcess lectures', () => {
       const result = expect(pending).rejects.toThrow('Истекло время');
       await vi.advanceTimersByTimeAsync(LECTURE_MUTATION_TIMEOUT_MS);
       await result;
-      emitMessage({ type: 'lectures.commandResult', requestId: command.requestId, ok: true });
+      emitMessage({
+        type: 'lectures.commandResult',
+        requestId: command.requestId,
+        ok: true,
+      });
     } finally {
       vi.useRealTimers();
     }
@@ -316,14 +354,27 @@ describe('CoreProcess lectures', () => {
     const { core, posted, emitMessage } = createProcess();
     const pending = core.resolveManualTarget('Алгебра');
     const command = posted.at(-1)!;
-    expect(command).toMatchObject({ type: 'lectures.resolveManualTarget', query: 'Алгебра' });
+    expect(command).toMatchObject({
+      type: 'lectures.resolveManualTarget',
+      query: 'Алгебра',
+    });
     if (!('requestId' in command)) throw new Error('No request ID');
-    emitMessage({ type: 'lectures.commandResult', requestId: command.requestId, ok: true, value: { status: 'not_found' } });
+    emitMessage({
+      type: 'lectures.commandResult',
+      requestId: command.requestId,
+      ok: true,
+      value: { status: 'not_found' },
+    });
     await expect(pending).resolves.toEqual({ status: 'not_found' });
     const second = core.deleteLecture('manual:1');
     const next = posted.at(-1)!;
     if (!('requestId' in next)) throw new Error('No request ID');
-    emitMessage({ type: 'lectures.commandResult', requestId: next.requestId, ok: false, message: 'bad https://sdo.tusur.ru/x?token=secret' });
+    emitMessage({
+      type: 'lectures.commandResult',
+      requestId: next.requestId,
+      ok: false,
+      message: 'bad https://sdo.tusur.ru/x?token=secret',
+    });
     await expect(second).rejects.toThrow('[REDACTED_URL]');
   });
 

@@ -17,6 +17,7 @@ export interface ImportSchedulerDependencies {
   clearTimeout?: typeof clearTimeout;
   onView(view: ImportView): void;
   onAuthRequired(): void;
+  onFailure?(view: Extract<ImportView, { status: 'failed' }>): void;
 }
 
 const AUTH_MESSAGE = 'Сессия ТУСУР истекла. Войдите снова.';
@@ -119,12 +120,14 @@ export class ImportScheduler {
       });
       this.deps.onAuthRequired();
     } else {
-      this.emit({
+      const failed: Extract<ImportView, { status: 'failed' }> = {
         status: 'failed',
         at,
         message: result.message,
         ...this.lastSuccess(),
-      });
+      };
+      this.emit(failed);
+      this.deps.onFailure?.(failed);
       this.schedule(RETRY_MS, 'retry');
     }
   }

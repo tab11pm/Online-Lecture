@@ -7,8 +7,17 @@ import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { LecturesView } from '../shared/lectures.js';
 import type { BrowserChoice } from '../shared/browser-choice.js';
-import type { EditImportedTimeInput, ManualScheduleInput, RescheduleInput } from '@core/core/schedule-editing.js';
+import type {
+  EditImportedTimeInput,
+  ManualScheduleInput,
+  RescheduleInput,
+} from '@core/core/schedule-editing.js';
 import type { ManualTargetLookup } from '../shared/lectures.js';
+import type {
+  JournalFilter,
+  JournalPage,
+  NewJournalEvent,
+} from '../shared/journal.js';
 import { randomUUID } from 'node:crypto';
 import { redactSensitiveText } from '@core/core/redaction.js';
 
@@ -28,6 +37,7 @@ export interface CoreProcessCallbacks {
   onStatusChanged(status: CoreStatus): void;
   onNotification(notification: CoreNotification): void;
   onLecturesChanged(view: LecturesView): void;
+  onJournalEvent?(event: NewJournalEvent): void;
 }
 
 /**
@@ -55,9 +65,12 @@ interface Pending<T> {
   reject(error: Error): void;
 }
 
-type LectureCommand = Extract<MainCommand, { requestId: string }> extends infer Command
-  ? Command extends { requestId: string } ? Omit<Command, 'requestId'> : never
-  : never;
+type LectureCommand =
+  Extract<MainCommand, { requestId: string }> extends infer Command
+    ? Command extends { requestId: string }
+      ? Omit<Command, 'requestId'>
+      : never
+    : never;
 
 const EMPTY_LECTURES_VIEW: LecturesView = {
   agenda: [],
@@ -73,6 +86,7 @@ export class CoreProcess {
   private pendingState: Pending<OnboardingState> | undefined;
   private pendingLogin: Pending<LoginOutcome> | undefined;
   private readonly pendingLectures = new Map<string, Pending<unknown>>();
+  private readonly pendingJournal = new Map<string, Pending<JournalPage>>();
   private lecturesView: LecturesView = EMPTY_LECTURES_VIEW;
   private shutdownWaiter: (() => void) | undefined;
   private stateRequest: Promise<OnboardingState> | undefined;
@@ -183,6 +197,29 @@ export class CoreProcess {
     return this.lecturesView;
   }
 
+  listJournalPage(
+    filter: JournalFilter,
+    cursor?: string,
+  ): Promise<JournalPage> {
+    this.ensureStarted();
+    const requestId = randomUUID();
+    return new Promise<JournalPage>((resolve, reject) => {
+      const pending = this.createPending(
+        resolve,
+        reject,
+        () => this.pendingJournal.delete(requestId),
+        LECTURE_MUTATION_TIMEOUT_MS,
+      );
+      this.pendingJournal.set(requestId, pending);
+      this.post({
+        type: 'journal.list',
+        requestId,
+        filter,
+        ...(cursor ? { cursor } : {}),
+      });
+    });
+  }
+
   importLectures(): void {
     this.ensureStarted();
     this.post({ type: 'lectures.import' });
@@ -203,27 +240,53 @@ export class CoreProcess {
   }
 
   resolveManualTarget(query: string): Promise<ManualTargetLookup> {
-    return this.requestLecture<ManualTargetLookup>({ type: 'lectures.resolveManualTarget', query }, REQUEST_TIMEOUT_MS);
+    return this.requestLecture<ManualTargetLookup>(
+      { type: 'lectures.resolveManualTarget', query },
+      REQUEST_TIMEOUT_MS,
+    );
   }
 
-  saveManual(input: { candidateId: string; title: string; schedule: ManualScheduleInput }): Promise<void> {
-    return this.requestLecture<void>({ type: 'lectures.saveManual', input }, LECTURE_MUTATION_TIMEOUT_MS);
+  saveManual(input: {
+    candidateId: string;
+    title: string;
+    schedule: ManualScheduleInput;
+  }): Promise<void> {
+    return this.requestLecture<void>(
+      { type: 'lectures.saveManual', input },
+      LECTURE_MUTATION_TIMEOUT_MS,
+    );
   }
 
   editImportedTime(input: EditImportedTimeInput): Promise<void> {
-    return this.requestLecture<void>({ type: 'lectures.editImportedTime', input }, LECTURE_MUTATION_TIMEOUT_MS);
+    return this.requestLecture<void>(
+      { type: 'lectures.editImportedTime', input },
+      LECTURE_MUTATION_TIMEOUT_MS,
+    );
   }
 
   reschedule(input: RescheduleInput): Promise<string> {
-    return this.requestLecture<string>({ type: 'lectures.reschedule', input }, LECTURE_MUTATION_TIMEOUT_MS);
+    return this.requestLecture<string>(
+      { type: 'lectures.reschedule', input },
+      LECTURE_MUTATION_TIMEOUT_MS,
+    );
   }
 
   cancelReschedule(jobId: string): Promise<void> {
-    return this.requestLecture<void>({ type: 'lectures.cancelReschedule', jobId }, LECTURE_MUTATION_TIMEOUT_MS);
+    return this.requestLecture<void>(
+      { type: 'lectures.cancelReschedule', jobId },
+      LECTURE_MUTATION_TIMEOUT_MS,
+    );
   }
 
   deleteLecture(jobId: string, occurrenceId?: string): Promise<void> {
-    return this.requestLecture<void>({ type: 'lectures.deleteLecture', jobId, ...(occurrenceId ? { occurrenceId } : {}) }, LECTURE_MUTATION_TIMEOUT_MS);
+    return this.requestLecture<void>(
+      {
+        type: 'lectures.deleteLecture',
+        jobId,
+        ...(occurrenceId ? { occurrenceId } : {}),
+      },
+      LECTURE_MUTATION_TIMEOUT_MS,
+    );
   }
 
   private requestLecture<T>(
@@ -233,7 +296,12 @@ export class CoreProcess {
     this.ensureStarted();
     const requestId = randomUUID();
     return new Promise<T>((resolve, reject) => {
-      const pending = this.createPending<T>(resolve, reject, () => this.pendingLectures.delete(requestId), timeoutMs);
+      const pending = this.createPending<T>(
+        resolve,
+        reject,
+        () => this.pendingLectures.delete(requestId),
+        timeoutMs,
+      );
       this.pendingLectures.set(requestId, pending as Pending<unknown>);
       this.post({ ...command, requestId } as MainCommand);
     });
@@ -413,6 +481,15 @@ export class CoreProcess {
         this.lecturesView = event.view;
         this.callbacks.onLecturesChanged(event.view);
         return;
+      case 'journal.result': {
+        const pending = this.pendingJournal.get(event.requestId);
+        if (event.ok) pending?.resolve(event.page);
+        else pending?.reject(new Error(redactSensitiveText(event.message)));
+        return;
+      }
+      case 'journal.event':
+        this.callbacks.onJournalEvent?.(event.event);
+        return;
       case 'lectures.commandResult': {
         const pending = this.pendingLectures.get(event.requestId);
         if (event.ok) pending?.resolve(event.value);
@@ -439,7 +516,10 @@ export class CoreProcess {
   private rejectPending(message: string): void {
     this.pendingState?.reject(new Error(message));
     this.pendingLogin?.reject(new Error(message));
-    for (const pending of this.pendingLectures.values()) pending.reject(new Error(message));
+    for (const pending of this.pendingLectures.values())
+      pending.reject(new Error(message));
+    for (const pending of this.pendingJournal.values())
+      pending.reject(new Error(message));
   }
 
   private setStatus(status: CoreStatus): void {

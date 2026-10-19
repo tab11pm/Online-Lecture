@@ -1,7 +1,10 @@
 import { isSdoMcpUnavailableError } from '@core/core/mcp-errors.js';
+import { randomUUID } from 'node:crypto';
+import type { JournalCode } from '@core/persistence/desktop-event-repository.js';
 import { redactSensitiveText } from '@core/core/redaction.js';
 import { browserChannel } from '../shared/browser-choice.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
+import type { NewJournalEvent } from '../shared/journal.js';
 import type {
   LectureBrowserOptions,
   LecturesView,
@@ -34,6 +37,8 @@ export type LectureControl = Pick<
   | 'reschedule'
   | 'cancelReschedule'
   | 'deleteLecture'
+  | 'recordSystemEvent'
+  | 'listJournalPage'
   | 'setBrowser'
   | 'resumed'
   | 'shutdown'
@@ -42,6 +47,7 @@ export type LectureControl = Pick<
 export interface LectureHostEvents {
   onView(view: LecturesView): void;
   onAuthRequired(): void;
+  onJournalEvent(event: NewJournalEvent): void;
 }
 
 export interface CoreHostDependencies {
@@ -70,6 +76,7 @@ export class CoreHost {
   private sessionReady = false;
   private loginInFlight = false;
   private browser: LectureBrowserOptions = { headless: false };
+  private authEpisode = false;
 
   constructor(
     private readonly transport: HostTransport,
@@ -81,7 +88,15 @@ export class CoreHost {
     this.machine = deps.machine ?? this.buildMachine(deps.provider);
     this.lectures = deps.lectures?.({
       onView: (view) => this.transport.post({ type: 'lectures.changed', view }),
-      onAuthRequired: () => this.machine.requireLogin(SESSION_EXPIRED_MESSAGE),
+      onAuthRequired: () => {
+        this.machine.requireLogin(SESSION_EXPIRED_MESSAGE);
+        if (!this.authEpisode) {
+          this.authEpisode = true;
+          void this.recordEvent('auth_required', `auth:${randomUUID()}`);
+        }
+      },
+      onJournalEvent: (event) =>
+        this.transport.post({ type: 'journal.event', event }),
     });
   }
 
@@ -168,6 +183,7 @@ export class CoreHost {
   }
 
   private logError(error: unknown): void {
+    void this.recordEvent('core_error', `onboarding:${randomUUID()}`);
     if (!this.log) {
       return;
     }
@@ -186,6 +202,9 @@ export class CoreHost {
     }
     try {
       switch (command.type) {
+        case 'journal.list':
+          await this.handleJournalRequest(command);
+          return;
         case 'lectures.resolveManualTarget':
         case 'lectures.saveManual':
         case 'lectures.editImportedTime':
@@ -244,14 +263,14 @@ export class CoreHost {
           this.postChanged(this.machine.getState());
           return;
         case 'onboarding.login':
-          this.postOutcome(
+          await this.postOutcome(
             await this.whileLoggingIn(() =>
               this.machine.submitCredentials(command.input),
             ),
           );
           return;
         case 'onboarding.openManualSso':
-          this.postOutcome(
+          await this.postOutcome(
             await this.whileLoggingIn(() => this.machine.openManualSso()),
           );
           return;
@@ -262,9 +281,48 @@ export class CoreHost {
           return;
       }
     } catch (error) {
+      await this.recordEvent('core_error', `host:${randomUUID()}`);
       this.transport.post({
         type: 'host.error',
         message: localizeHostError(redactSensitiveText(errorMessage(error))),
+      });
+    }
+  }
+
+  private async handleJournalRequest(
+    command: Extract<MainCommand, { type: 'journal.list' }>,
+  ): Promise<void> {
+    try {
+      if (command.filter !== 'all' && command.filter !== 'errors')
+        throw new Error('Invalid journal filter');
+      if (
+        command.cursor !== undefined &&
+        (typeof command.cursor !== 'string' ||
+          command.cursor.length === 0 ||
+          command.cursor.length > 512)
+      )
+        throw new Error('Invalid journal cursor');
+      if (!(await this.lecturesReady) || !this.lectures)
+        throw new Error('Lecture database is not open');
+      const page = await this.lectures.listJournalPage(
+        command.filter,
+        command.cursor,
+      );
+      this.transport.post({
+        type: 'journal.result',
+        requestId: command.requestId,
+        ok: true,
+        page,
+      });
+    } catch (error) {
+      this.log?.error(
+        `journal read failed: ${redactSensitiveText(errorMessage(error))}`,
+      );
+      this.transport.post({
+        type: 'journal.result',
+        requestId: command.requestId,
+        ok: false,
+        message: 'Не удалось открыть журнал.',
       });
     }
   }
@@ -293,7 +351,10 @@ export class CoreHost {
           await this.lectures.cancelReschedule(command.jobId);
           break;
         case 'lectures.deleteLecture':
-          await this.lectures.deleteLecture(command.jobId, command.occurrenceId);
+          await this.lectures.deleteLecture(
+            command.jobId,
+            command.occurrenceId,
+          );
           break;
       }
       this.transport.post({
@@ -327,10 +388,25 @@ export class CoreHost {
     this.transport.post({ type: 'onboarding.changed', state });
   }
 
-  private postOutcome(state: OnboardingState): void {
+  private async postOutcome(state: OnboardingState): Promise<void> {
     const outcome = this.capturedOutcome ?? outcomeFromState(state);
     this.capturedOutcome = undefined;
     this.transport.post({ type: 'onboarding.loginResult', outcome });
+    if (state.phase === 'session_ready' && outcome.ok) {
+      this.authEpisode = false;
+      await this.recordEvent('login_succeeded', `login:${randomUUID()}`);
+    }
+  }
+
+  private async recordEvent(code: JournalCode, key: string): Promise<void> {
+    if (!(await this.lecturesReady) || !this.lectures) return;
+    try {
+      await this.lectures.recordSystemEvent(code, key);
+    } catch (error) {
+      this.log?.error(
+        `journal event failed: ${redactSensitiveText(errorMessage(error))}`,
+      );
+    }
   }
 }
 

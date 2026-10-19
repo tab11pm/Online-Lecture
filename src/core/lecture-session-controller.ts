@@ -26,6 +26,7 @@ export class LectureSessionController {
     let run = startingRun;
     let reason: CompletionReason | 'blocked' = 'meeting_ended';
     let retries = 0;
+    let retriesExhausted = false;
     const leaveAt = Date.parse(occurrence.leaveAt);
     const deadlineController = new AbortController();
     const combinedController = new AbortController();
@@ -112,6 +113,7 @@ export class LectureSessionController {
           const delay = nextRetryDelay(retries);
           if (delay === undefined) {
             reason = 'error';
+            retriesExhausted = true;
             break;
           }
           await transition('reconnecting');
@@ -184,6 +186,9 @@ export class LectureSessionController {
       return this.dependencies.update({
         ...transitionRun(run, 'failed', completedAt),
         completionReason: 'error',
+        ...(retriesExhausted
+          ? { failureCode: 'retries_exhausted' as const }
+          : {}),
       });
     }
     return this.dependencies.update(completeRun(run, reason, completedAt));

@@ -92,6 +92,7 @@ new CoreHost(transport, {
       now: () => new Date(),
       onView: events.onView,
       onAuthRequired: events.onAuthRequired,
+      onJournalEvent: events.onJournalEvent,
       log,
     }),
 }).start();
