@@ -6,12 +6,14 @@ import { desktop } from '../api';
 
 export function ScheduleEditor({
   item,
+  initialMode = 'time',
   onClose,
 }: {
   item: AgendaItem;
+  initialMode?: 'time' | 'move';
   onClose(): void;
 }) {
-  const [mode, setMode] = useState<'time' | 'move'>('time');
+  const [mode, setMode] = useState<'time' | 'move'>(initialMode);
   const [date, setDate] = useState(item.date);
   const [joinAt, setJoinAt] = useState(item.joinAt);
   const [leaveAt, setLeaveAt] = useState(item.leaveAt);

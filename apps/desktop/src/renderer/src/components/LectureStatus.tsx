@@ -28,7 +28,6 @@ export function LectureStatus({ view, onStop }: LectureStatusProps) {
           <Activity size={17} strokeWidth={1.8} aria-hidden="true" />
           Статус
         </h2>
-        <span className="card__index">01</span>
       </div>
       {current ? (
         <div className="status-card__live">
@@ -44,6 +43,9 @@ export function LectureStatus({ view, onStop }: LectureStatusProps) {
           </p>
           <p className="status-card__state">
             Состояние: {runStatusLabels[current.status]}
+          </p>
+          <p className="status-card__deadline">
+            Окончание в {isoClock(current.leaveAt)}
           </p>
           <div className="status-card__actions">
             <button type="button" className="btn btn--danger" onClick={onStop}>

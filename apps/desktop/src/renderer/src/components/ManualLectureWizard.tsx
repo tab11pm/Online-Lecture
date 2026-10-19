@@ -132,7 +132,7 @@ export function ManualLectureWizard({
           <fieldset className="wizard-step">
             <legend>1. Найдите курс СДО</legend>
             <div className="wizard-search">
-              <div className="field" style={{ flex: 1 }}>
+              <div className="field wizard-search__field">
                 <label htmlFor="course-query">
                   Курс СДО или ссылка на курс
                 </label>
@@ -150,9 +150,8 @@ export function ManualLectureWizard({
               </div>
               <button
                 type="submit"
-                className="btn btn--primary"
+                className="btn btn--primary wizard-search__button"
                 disabled={searching}
-                style={{ alignSelf: 'flex-end' }}
               >
                 <Search size={15} strokeWidth={1.8} aria-hidden="true" />
                 {searching ? 'Поиск…' : 'Найти активность'}
@@ -263,17 +262,17 @@ export function ManualLectureWizard({
                 aria-label="BBB-активности"
               >
                 {lookup.candidates.map((candidate) => (
-                  <label className="candidate" key={candidate.id}>
-                    <input
-                      type="radio"
-                      name="activity"
-                      value={candidate.id}
-                      checked={candidateId === candidate.id}
-                      onChange={() => {
-                        setCandidateId(candidate.id);
-                        if (!title) setTitle(candidate.name);
-                      }}
-                    />
+                  <button
+                    className="candidate"
+                    key={candidate.id}
+                    type="button"
+                    role="radio"
+                    aria-checked={candidateId === candidate.id}
+                    onClick={() => {
+                      setCandidateId(candidate.id);
+                      if (!title) setTitle(candidate.name);
+                    }}
+                  >
                     {candidate.type === 'lecture' ? (
                       <Video
                         className="candidate__icon"
@@ -296,7 +295,7 @@ export function ManualLectureWizard({
                         {candidate.type === 'lecture' ? 'лекция' : 'практика'}
                       </small>
                     </span>
-                  </label>
+                  </button>
                 ))}
               </div>
             ) : null}

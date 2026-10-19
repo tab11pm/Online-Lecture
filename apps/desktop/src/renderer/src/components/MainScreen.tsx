@@ -35,6 +35,7 @@ export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
   const [notice, setNotice] = useState<string>();
   const [showWizard, setShowWizard] = useState(false);
   const [editing, setEditing] = useState<AgendaItem>();
+  const [editingMode, setEditingMode] = useState<'time' | 'move'>('time');
 
   useEffect(
     () =>
@@ -66,6 +67,17 @@ export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
   function run(action: Promise<void>): void {
     setError(undefined);
     action.catch((reason: unknown) => setError(message(reason)));
+  }
+
+  function confirmDelete(item: AgendaItem): void {
+    const action = item.source === 'manual' ? 'удалить' : 'скрыть';
+    if (!window.confirm(`Точно ${action} пару «${item.title}»?`)) return;
+    run(
+      desktop.lectures.deleteLecture(
+        item.jobId,
+        item.source === 'timetable' ? item.occurrenceId : undefined,
+      ),
+    );
   }
 
   return (
@@ -121,18 +133,12 @@ export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
             />
             <AgendaList
               agenda={view.agenda}
-              onEdit={(item) => {
+              onEdit={(item, mode = 'time') => {
                 setEditing(item);
+                setEditingMode(mode);
                 setShowWizard(false);
               }}
-              onDelete={(item) =>
-                run(
-                  desktop.lectures.deleteLecture(
-                    item.jobId,
-                    item.source === 'timetable' ? item.occurrenceId : undefined,
-                  ),
-                )
-              }
+              onDelete={confirmDelete}
               onCancelReschedule={(item) =>
                 run(desktop.lectures.cancelReschedule(item.jobId))
               }
@@ -169,7 +175,11 @@ export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
         />
       ) : null}
       {editing ? (
-        <ScheduleEditor item={editing} onClose={() => setEditing(undefined)} />
+        <ScheduleEditor
+          item={editing}
+          initialMode={editingMode}
+          onClose={() => setEditing(undefined)}
+        />
       ) : null}
     </div>
   );

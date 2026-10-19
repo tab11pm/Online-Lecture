@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import '@testing-library/jest-dom/vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const api = vi.hoisted(() => ({ resolveManualTarget: vi.fn(), saveManual: vi.fn(async () => undefined) }));
@@ -14,6 +14,16 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe('ManualLectureWizard', () => {
+  it('keeps the course search field and action in one aligned control row', () => {
+    render(<ManualLectureWizard onClose={vi.fn()} />);
+    expect(
+      screen.getByLabelText('Курс СДО или ссылка на курс').closest('.wizard-search__field'),
+    ).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Найти активность' })).toHaveClass(
+      'wizard-search__button',
+    );
+  });
+
   it('keeps the query after not_found and offers sign-in after auth_required', async () => {
     const onAuthRequired = vi.fn();
     api.resolveManualTarget.mockResolvedValueOnce({ status: 'not_found' }).mockResolvedValueOnce({ status: 'auth_required' });
@@ -33,9 +43,10 @@ describe('ManualLectureWizard', () => {
     render(<ManualLectureWizard onClose={vi.fn()} />);
     fireEvent.change(screen.getByLabelText('Курс СДО или ссылка на курс'), { target: { value: 'Алгебра' } });
     fireEvent.click(screen.getByRole('button', { name: 'Найти активность' }));
-    expect(await screen.findAllByRole('radio', { name: /Алгебра/ })).toHaveLength(2);
-    expect(screen.getByRole('radio', { name: /Лекция 1/ })).not.toBeChecked();
-    expect(screen.getByRole('radio', { name: /Практика 1/ })).not.toBeChecked();
+    const candidates = await screen.findByRole('radiogroup', { name: 'BBB-активности' });
+    expect(within(candidates).getAllByRole('radio')).toHaveLength(2);
+    expect(screen.getByRole('radio', { name: /Лекция 1/ })).toHaveAttribute('aria-checked', 'false');
+    expect(screen.getByRole('radio', { name: /Практика 1/ })).toHaveAttribute('aria-checked', 'false');
   });
 
   it('disables save while a confirmed lecture is being written', async () => {
@@ -66,7 +77,7 @@ describe('ManualLectureWizard', () => {
     fireEvent.change(screen.getByLabelText('Выход'), { target: { value: '13:00' } });
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить пару' }));
     expect(api.saveManual).not.toHaveBeenCalled();
-    fireEvent.click(screen.getByLabelText(/Лекция 1/));
+    fireEvent.click(screen.getByRole('radio', { name: /Лекция 1/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить пару' }));
     await waitFor(() => expect(api.saveManual).toHaveBeenCalledWith(expect.objectContaining({ candidateId: 'opaque', schedule: { type: 'once', date: '2099-10-20', joinAt: '12:00', leaveAt: '13:00' } })));
   });
