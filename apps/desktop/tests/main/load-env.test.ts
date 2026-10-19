@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  applyPackagedSqliteBinding,
   applySqliteBindingDefault,
   applyDesktopServerDefaults,
   envFileCandidates,
@@ -141,6 +142,20 @@ describe('applySqliteBindingDefault', () => {
     applySqliteBindingDefault(env, '/app');
     expect(env.ONLINE_LECTURE_SQLITE_BINDING).toBe(
       '/custom/better_sqlite3.node',
+    );
+  });
+});
+
+describe('applyPackagedSqliteBinding', () => {
+  it('always uses the native module shipped in resources', () => {
+    const env: NodeJS.ProcessEnv = {
+      ONLINE_LECTURE_SQLITE_BINDING: '/wrong/better_sqlite3.node',
+    };
+
+    applyPackagedSqliteBinding(env, join('/resources'));
+
+    expect(env.ONLINE_LECTURE_SQLITE_BINDING).toBe(
+      join('/resources', 'native', 'better_sqlite3.node'),
     );
   });
 });

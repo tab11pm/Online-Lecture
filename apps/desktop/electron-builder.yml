@@ -1,0 +1,43 @@
+appId: ru.onlinelecture.desktop
+productName: Online Lecture
+asar: true
+npmRebuild: false
+directories:
+  output: dist
+  buildResources: build
+files:
+  - package.json
+  - out/**/*
+  - '!out/**/*.map'
+  - '!out/**/preview*'
+  - '!out/**/*.test.*'
+  - '!**/tests/**'
+  - '!**/.env'
+  - '!**/.env.*'
+  - '!**/auth.json'
+  - '!**/*.db'
+  - '!**/*.sqlite'
+  - '!**/*.sqlite3'
+  - '!**/logs/**'
+  - '!**/*.log'
+  - '!**/*.zip'
+  - '!node_modules/better-sqlite3/build/**/*'
+  - '!native/build-better-sqlite3/**/*'
+asarUnpack:
+  - node_modules/**/*
+extraResources:
+  - from: native/better_sqlite3.node
+    to: native/better_sqlite3.node
+win:
+  executableName: OnlineLecture
+  target:
+    - target: nsis
+      arch:
+        - x64
+  artifactName: OnlineLecture-Setup-${version}-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowElevation: false
+  deleteAppDataOnUninstall: false
+  include: build/installer.nsh

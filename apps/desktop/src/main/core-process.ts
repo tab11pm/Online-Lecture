@@ -7,6 +7,8 @@ import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { LecturesView } from '../shared/lectures.js';
 import type { BrowserChoice } from '../shared/browser-choice.js';
+import type { RuntimeMode } from '../shared/runtime-mode.js';
+import { encodeWorkerStartup } from '../shared/worker-startup.js';
 import type {
   EditImportedTimeInput,
   ManualScheduleInput,
@@ -57,6 +59,7 @@ export interface CoreProcessOptions {
   initialBrowserChoice?: BrowserChoice;
   initialShowLectureWindow: boolean;
   externalChannel?: string;
+  runtimeMode?: RuntimeMode;
   fork(entryPath: string, args: string[]): CoreChild;
 }
 
@@ -130,11 +133,16 @@ export class CoreProcess {
       type: 'lectures.setShowWindow',
       show: this.options.initialShowLectureWindow,
     });
-    const child = this.options.fork(this.options.entryPath, [
-      this.options.userDataDir,
-      this.options.externalChannel === undefined ? '0' : '1',
-      this.options.externalChannel ?? '',
-    ]);
+    const child = this.options.fork(
+      this.options.entryPath,
+      encodeWorkerStartup({
+        userDataDir: this.options.userDataDir,
+        ...(this.options.externalChannel === undefined
+          ? {}
+          : { externalChannel: this.options.externalChannel }),
+        runtimeMode: this.options.runtimeMode ?? 'development',
+      }),
+    );
     this.child = child;
     child.on('message', (message) => {
       this.handleEvent(message as HostEvent);

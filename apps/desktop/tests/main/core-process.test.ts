@@ -43,7 +43,15 @@ function createFakeChild() {
   };
 }
 
-function createProcess({ autoReady = true } = {}) {
+function createProcess({
+  autoReady = true,
+  fork,
+  runtimeMode,
+}: {
+  autoReady?: boolean;
+  fork?: (entryPath: string, args: string[]) => CoreChild;
+  runtimeMode?: 'development' | 'packaged';
+} = {}) {
   const fake = createFakeChild();
   const onChanged = vi.fn();
   const onStatusChanged = vi.fn();
@@ -55,7 +63,8 @@ function createProcess({ autoReady = true } = {}) {
       entryPath: '/entry.js',
       userDataDir: '/data',
       initialShowLectureWindow: true,
-      fork: () => fake.child,
+      ...(runtimeMode ? { runtimeMode } : {}),
+      fork: fork ?? (() => fake.child),
     },
     {
       onChanged,
@@ -754,5 +763,63 @@ describe('CoreProcess lectures', () => {
     );
     await core.shutdown(10_000);
     expect(core.getStatus()).toBe('stopped');
+  });
+});
+
+describe('worker startup arguments', () => {
+  it('passes development mode by default', () => {
+    const fork = vi.fn(() => createFakeChild().child);
+
+    const core = new CoreProcess(
+      {
+        entryPath: '/entry.js',
+        userDataDir: '/data',
+        initialShowLectureWindow: true,
+        fork,
+      },
+      {
+        onChanged: vi.fn(),
+        onStatusChanged: vi.fn(),
+        onNotification: vi.fn(),
+        onLecturesChanged: vi.fn(),
+      },
+    );
+    core.start();
+
+    expect(fork).toHaveBeenCalledWith('/entry.js', [
+      '/data',
+      '0',
+      '',
+      'development',
+    ]);
+  });
+
+  it('passes packaged mode and preserves an empty external channel', () => {
+    const fork = vi.fn(() => createFakeChild().child);
+
+    const core = new CoreProcess(
+      {
+        entryPath: '/entry.js',
+        userDataDir: '/data',
+        initialShowLectureWindow: true,
+        externalChannel: '',
+        runtimeMode: 'packaged',
+        fork,
+      },
+      {
+        onChanged: vi.fn(),
+        onStatusChanged: vi.fn(),
+        onNotification: vi.fn(),
+        onLecturesChanged: vi.fn(),
+      },
+    );
+    core.start();
+
+    expect(fork).toHaveBeenCalledWith('/entry.js', [
+      '/data',
+      '1',
+      '',
+      'packaged',
+    ]);
   });
 });

@@ -1,5 +1,45 @@
 # Handoff — Online Lecture: автоимпорт расписания ТУСУР
 
+## Windows: реализация упаковки (2026-10-19)
+
+Реализованы задачи 1–4 и 5.1 плана
+`docs/superpowers/plans/2026-10-19-windows-packaging.md`; 5.2 закрыт по unit/build,
+но dev Electron E2E заблокирован окружением. Production-код изменён, Windows-артефакт
+ещё не собирался и на Windows не запускался.
+
+- **Runtime.** `initializeRuntimeEnvironment` вызывается до worker: dev читает `.env`
+  и сохраняет явный `ONLINE_LECTURE_SQLITE_BINDING`, packaged не читает env-файлы и
+  принудительно использует `resources/native/better_sqlite3.node`. Режим передаётся
+  worker доверенным четвёртым аргументом (`shared/worker-startup.ts`), а не env.
+  Packaged MCP запускается только из bundled entry через Electron Node; dotenv
+  направлен на `NUL`/`/dev/null`, а `SDO_MCP_SERVER_PATH/CWD` удаляются из окружения.
+- **Identity.** Добавлены `ru.onlinelecture.desktop`, `OnlineLecture.exe`,
+  `productName=Online Lecture`, single-instance guard до запуска worker и
+  автозапуск с явным именем `Online Lecture`.
+- **Зависимости и проверки.** `better-sqlite3` и `jsdom` объявлены production,
+  `@electron/asar` — прямая dev-зависимость. `scripts/native-build-check.ts`
+  проверяет stamp, PE и x64; `scripts/packaged-app-check.ts` читает реальный ASAR,
+  рекурсивный production-граф, запрещённые файлы, symlink/выход за каталог и SHA-256
+  native-модуля.
+- **Сборка.** `electron-builder.yml`, `build/installer.nsh` и
+  `scripts/package-windows.ts` добавляют `pack:win`/`dist:win` только для Windows x64:
+  проверка версий Playwright → build native → native check → `--dir` → проверка
+  пакета → при необходимости NSIS из `--prepackaged` → `.sha256`. На Linux команда
+  завершается ошибкой без артефакта. Uninstaller удаляет только Run-значение
+  `Online Lecture`.
+- **Проверка.** Добавлены packaged E2E-ветка харнесса (`ONLINE_LECTURE_PACKAGED_EXECUTABLE`,
+  только Windows), `tests/e2e/packaged-runtime.test.ts`, executable smoke
+  (`scripts/packaged-runtime-smoke.ts`) и `docs/windows-smoke.md`.
+
+Гейты на Linux: `npm test` — 328 core + 400 desktop (5 opt-in пропусков);
+`npm run build`, production build desktop, ESLint/Prettier изменённых файлов,
+`git diff --check` прошли. Dev Electron E2E (`CI_ELECTRON_E2E=1 … tests/e2e`) не
+прошли: в окружении отсутствует Playwright Chromium, приложение показывает
+«Chromium не установлен»; это не результат изменений упаковки и требует установки
+браузера. Windows-команды на Linux корректно отказывают. **Не проверены:** сборка
+NSIS, запуск `OnlineLecture.exe`, Edge/DPAPI/трей/уведомления/автозапуск, реальная
+установка/обновление/uninstall и packaged smoke на чистой Windows.
+
 ## Windows: проект дизайна упаковки (2026-10-19)
 
 Подготовлен `docs/superpowers/specs/2026-10-19-windows-packaging-design.md` и OpenSpec `windows-packaging`. Предлагаются per-user NSIS x64, отдельный native-ресурс SQLite, распакованный production-граф, запрет `.env` в packaged main/MCP, стабильный appId и single-instance. Chromium остаётся загрузкой по кнопке; данные сохраняются при обновлении и uninstall. Публичная публикация, подпись и автообновления не входят в этап.

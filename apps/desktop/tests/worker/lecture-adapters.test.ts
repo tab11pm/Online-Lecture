@@ -34,12 +34,16 @@ afterEach(async () => {
 
 function directJob(): { job: Job; occurrenceId: string } {
   const zone = 'Asia/Krasnoyarsk';
-  const start = DateTime.now().setZone(zone).minus({ minutes: 1 });
-  const end = start.plus({ minutes: 60 });
-  const joinAt = DateTime.fromISO(
-    `${start.toISODate()}T${start.toFormat('HH:mm')}`,
-    { zone },
-  );
+  const now = DateTime.now().setZone(zone);
+  const start = now.minus({ minutes: 1 });
+  const end = now.plus({ minutes: 1 });
+  // Keep the occurrence inside the current date so the active-window lookup
+  // does not fail when the test happens to run near midnight.
+  const date = now.toISODate()!;
+  const joinTime =
+    start.toISODate() === date ? start.toFormat('HH:mm') : '00:00';
+  const leaveTime = end.toISODate() === date ? end.toFormat('HH:mm') : '23:59';
+  const joinAt = DateTime.fromISO(`${date}T${joinTime}`, { zone });
   const job: Job = {
     id: 'tt:direct:1',
     enabled: true,
@@ -49,9 +53,9 @@ function directJob(): { job: Job; occurrenceId: string } {
       timezone: zone,
       occurrences: [
         {
-          date: start.toISODate()!,
-          joinAt: start.toFormat('HH:mm'),
-          leaveAt: end.toFormat('HH:mm'),
+          date,
+          joinAt: joinTime,
+          leaveAt: leaveTime,
         },
       ],
     },
@@ -67,13 +71,20 @@ function directJob(): { job: Job; occurrenceId: string } {
 describe('createLectureAdapters', () => {
   it('resolves a manual target through MCP and closes the client', async () => {
     const close = vi.fn(async () => undefined);
-    const resolveOnlineLecture = vi.fn(async () => ({ status: 'not_found' as const }));
+    const resolveOnlineLecture = vi.fn(async () => ({
+      status: 'not_found' as const,
+    }));
     const adapters = createLectureAdapters({
       authStatePath: join(dir, 'auth.json'),
-      createMcpClient: () => ({ close, resolveOnlineLecture }) as unknown as SdoMcpClient,
+      createMcpClient: () =>
+        ({ close, resolveOnlineLecture }) as unknown as SdoMcpClient,
     });
-    expect(await adapters.resolveManualTarget({ courseQuery: 'Алгебра' })).toEqual({ status: 'not_found' });
-    expect(resolveOnlineLecture).toHaveBeenCalledWith({ courseQuery: 'Алгебра' });
+    expect(
+      await adapters.resolveManualTarget({ courseQuery: 'Алгебра' }),
+    ).toEqual({ status: 'not_found' });
+    expect(resolveOnlineLecture).toHaveBeenCalledWith({
+      courseQuery: 'Алгебра',
+    });
     expect(close).toHaveBeenCalledOnce();
   });
 

@@ -25,6 +25,39 @@ npm test        # core suite + desktop suite
 
 Запуск собранного приложения: `npm run start -w @online-lecture/desktop`.
 
+## Windows-упаковка
+
+Сборка выполняется только на Windows x64:
+
+```bash
+npm run pack:win -w @online-lecture/desktop   # dist/win-unpacked, без установщика
+npm run dist:win -w @online-lecture/desktop   # NSIS OnlineLecture-Setup-<version>-x64.exe
+```
+
+На машине разработчика нужны Node.js, npm, Python и Visual Studio Build Tools с
+рабочей нагрузкой «Разработка классических приложений на C++» — они нужны только для
+сборки, но не пользователю установленного приложения. Обе команды проверяют версии
+Playwright, собирают `out/` и отдельную Electron-native `better-sqlite3`, проверяют
+PE x64 и stamp, затем проверяют реальный `dist/win-unpacked` (ASAR, production-граф,
+запрещённые файлы, SHA-256 native-модуля). `dist:win` создаёт NSIS только из уже
+проверенного `win-unpacked` и пишет рядом `OnlineLecture-Setup-<version>-x64.exe.sha256`.
+На Linux команда завершается понятной ошибкой, не создавая артефакт.
+
+Установщик — per-user NSIS без повышения прав. Код приложения лежит в
+`resources/app.asar`, production-зависимости — в `resources/app.asar.unpacked/node_modules`,
+SQLite — в `resources/native/better_sqlite3.node`. Chromium в установщик не входит:
+на Windows по умолчанию используется Edge, Chromium скачивается только кнопкой в
+приложении. Пользовательские данные в `%LOCALAPPDATA%/OnlineLecture` сохраняются при
+обновлении и удалении; uninstaller удаляет только собственный автозапуск и ярлыки.
+
+Первый тестовый `.exe` не подписан: Windows может показать предупреждение SmartScreen.
+Публикация, сертификат и автообновления в этот этап не входят. Проверки на Linux не
+заменяют приёмку на чистой Windows — см. `docs/windows-smoke.md`.
+
+Packaged-режим определяется `app.isPackaged`: bundled main/worker не читают `.env`, а
+SDO MCP запускается из распакованного пути с `DOTENV_CONFIG_PATH`, направленным на
+системное пустое устройство.
+
 ## E2E с фиктивной сессией
 
 `tests/e2e/` — четыре vitest-сценария через Playwright `_electron`: вход,
