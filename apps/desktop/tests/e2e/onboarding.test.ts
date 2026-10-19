@@ -1,43 +1,18 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { _electron as electron, type ElectronApplication } from 'playwright';
 import { expect, it } from 'vitest';
-
-const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
-const mainEntry = join(repoRoot, 'apps', 'desktop', 'out', 'main', 'index.js');
+import { launchIsolatedElectron } from './support/electron-app.js';
 
 // Opt-in only: plain `npm test` must stay green in headless CI without Electron.
 const e2e = process.env.CI_ELECTRON_E2E === '1' ? it : it.skip;
 
 e2e(
   'walks from welcome through credentials to the active session',
-  async ({ skip }) => {
-    if (!existsSync(mainEntry)) {
-      skip(
-        `Electron entry not found at ${mainEntry}; run "npm run build -w @online-lecture/desktop".`,
-      );
-      return;
-    }
-
-    let app: ElectronApplication | undefined;
+  async () => {
+    const isolated = await launchIsolatedElectron({
+      // Force the welcome screen to route through credentials first.
+      ONLINE_LECTURE_FAKE_SESSION_EXPIRED: '1',
+    });
     try {
-      try {
-        app = await electron.launch({
-          args: [mainEntry],
-          env: {
-            ...process.env,
-            ONLINE_LECTURE_FAKE_SESSION: '1',
-            // Force the welcome screen to route through credentials first.
-            ONLINE_LECTURE_FAKE_SESSION_EXPIRED: '1',
-          },
-        });
-      } catch (error) {
-        skip(`Electron could not launch here: ${describeError(error)}`);
-        return;
-      }
-
-      const page = await app.firstWindow();
+      const page = await isolated.app.firstWindow();
 
       const welcomeHeading = page.getByRole('heading', {
         name: 'Online Lecture',
@@ -60,11 +35,8 @@ e2e(
       await active.waitFor({ state: 'visible', timeout: 30_000 });
       expect(await active.isVisible()).toBe(true);
     } finally {
-      await app?.close();
+      await isolated.close();
     }
   },
+  120_000,
 );
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

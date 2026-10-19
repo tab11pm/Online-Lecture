@@ -43,7 +43,15 @@ function createFakeChild() {
   };
 }
 
-function createProcess({ autoReady = true } = {}) {
+function createProcess({
+  autoReady = true,
+  fork,
+  runtimeMode,
+}: {
+  autoReady?: boolean;
+  fork?: (entryPath: string, args: string[]) => CoreChild;
+  runtimeMode?: 'development' | 'packaged';
+} = {}) {
   const fake = createFakeChild();
   const onChanged = vi.fn();
   const onStatusChanged = vi.fn();
@@ -55,7 +63,8 @@ function createProcess({ autoReady = true } = {}) {
       entryPath: '/entry.js',
       userDataDir: '/data',
       initialShowLectureWindow: true,
-      fork: () => fake.child,
+      ...(runtimeMode ? { runtimeMode } : {}),
+      fork: fork ?? (() => fake.child),
     },
     {
       onChanged,
@@ -152,7 +161,7 @@ describe('CoreProcess request bridge', () => {
       { type: 'onboarding.checkSession' },
     ]);
     fake.emitMessage({
-      type: 'onboarding.changed',
+      type: 'onboarding.stateResult',
       state: { phase: 'credentials' },
     });
   });
@@ -165,6 +174,195 @@ describe('CoreProcess request bridge', () => {
       choice: 'chromium',
     });
   });
+  it('runs a session check after an outstanding state read completes', async () => {
+    const { core, emitMessage, posted } = createProcess();
+
+    const stateRead = core.getState();
+    const sessionCheck = core.checkSession();
+
+    const onboardingCommands = () =>
+      posted
+        .map((command) => command.type)
+        .filter((type) => type.startsWith('onboarding.'));
+    expect(onboardingCommands()).toEqual(['onboarding.getState']);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'welcome' },
+    });
+    await expect(stateRead).resolves.toEqual({ phase: 'welcome' });
+
+    expect(onboardingCommands()).toEqual([
+      'onboarding.getState',
+      'onboarding.checkSession',
+    ]);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'credentials' },
+    });
+    await expect(sessionCheck).resolves.toEqual({ phase: 'credentials' });
+  });
+
+  it('starts a new state request immediately after a deferred check completes', async () => {
+    const { core, emitMessage, posted } = createProcess();
+
+    const stateRead = core.getState();
+    const sessionCheck = core.checkSession();
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'welcome' },
+    });
+    await expect(stateRead).resolves.toEqual({ phase: 'welcome' });
+    expect(
+      posted.filter((command) => command.type === 'onboarding.checkSession'),
+    ).toHaveLength(1);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'credentials' },
+    });
+    await expect(sessionCheck).resolves.toEqual({ phase: 'credentials' });
+
+    const nextStateRead = core.getState();
+    expect(
+      posted.filter((command) => command.type === 'onboarding.getState'),
+    ).toHaveLength(2);
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'welcome' },
+    });
+    await expect(nextStateRead).resolves.toEqual({ phase: 'welcome' });
+  });
+
+  it('queues and coalesces state reads requested during a session check', async () => {
+    const { core, emitMessage, posted } = createProcess();
+
+    const sessionCheck = core.checkSession();
+    const firstRead = core.getState();
+    const secondRead = core.getState();
+
+    const onboardingCommands = () =>
+      posted
+        .map((command) => command.type)
+        .filter((type) => type.startsWith('onboarding.'));
+    expect(onboardingCommands()).toEqual(['onboarding.checkSession']);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'session_ready' },
+    });
+    await expect(sessionCheck).resolves.toEqual({ phase: 'session_ready' });
+    expect(onboardingCommands()).toEqual([
+      'onboarding.checkSession',
+      'onboarding.getState',
+    ]);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'welcome' },
+    });
+    await expect(firstRead).resolves.toEqual({ phase: 'welcome' });
+    await expect(secondRead).resolves.toEqual({ phase: 'welcome' });
+  });
+
+  it.each(['getState', 'checkSession'] as const)(
+    'does not settle %s from onboarding.changed pushes',
+    async (method) => {
+      const { core, emitMessage, onChanged } = createProcess();
+      const pending = core[method]();
+      let settled = false;
+      void pending.then(() => {
+        settled = true;
+      });
+
+      emitMessage({
+        type: 'onboarding.changed',
+        state: { phase: 'credentials' },
+      });
+      emitMessage({
+        type: 'onboarding.changed',
+        state: { phase: 'credentials' },
+      });
+      await Promise.resolve();
+
+      expect(settled).toBe(false);
+      expect(core.getLastState()).toEqual({ phase: 'credentials' });
+      expect(onChanged).toHaveBeenCalledTimes(2);
+
+      emitMessage({
+        type: 'onboarding.stateResult',
+        state: { phase: 'session_ready' },
+      });
+      await expect(pending).resolves.toEqual({ phase: 'session_ready' });
+      expect(core.getLastState()).toEqual({ phase: 'session_ready' });
+    },
+  );
+
+  it('waits for stateResult before dispatching and resolving a queued state read', async () => {
+    const { core, emitMessage, posted } = createProcess();
+    const sessionCheck = core.checkSession();
+    const stateRead = core.getState();
+    let stateReadSettled = false;
+    void stateRead.then(() => {
+      stateReadSettled = true;
+    });
+
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'session_ready' },
+    });
+    await Promise.resolve();
+    expect(
+      posted.filter((command) => command.type === 'onboarding.getState'),
+    ).toHaveLength(0);
+    expect(stateReadSettled).toBe(false);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'session_ready' },
+    });
+    await expect(sessionCheck).resolves.toEqual({ phase: 'session_ready' });
+    expect(
+      posted.filter((command) => command.type === 'onboarding.getState'),
+    ).toHaveLength(1);
+
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'credentials' },
+    });
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'credentials' },
+    });
+    await Promise.resolve();
+    expect(stateReadSettled).toBe(false);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'welcome' },
+    });
+    await expect(stateRead).resolves.toEqual({ phase: 'welcome' });
+  });
+
+  it('coalesces duplicate concurrent state reads', async () => {
+    const { core, emitMessage, posted } = createProcess();
+
+    const first = core.getState();
+    const second = core.getState();
+
+    expect(
+      posted.filter((command) => command.type === 'onboarding.getState'),
+    ).toHaveLength(1);
+
+    emitMessage({
+      type: 'onboarding.stateResult',
+      state: { phase: 'welcome' },
+    });
+    await expect(first).resolves.toEqual({ phase: 'welcome' });
+    await expect(second).resolves.toEqual({ phase: 'welcome' });
+  });
+
   it('coalesces a second concurrent state request into the first', async () => {
     const { core, emitMessage, posted } = createProcess();
 
@@ -176,11 +374,66 @@ describe('CoreProcess request bridge', () => {
     ).toHaveLength(1);
 
     emitMessage({
-      type: 'onboarding.changed',
+      type: 'onboarding.stateResult',
       state: { phase: 'session_ready' },
     });
     await expect(first).resolves.toEqual({ phase: 'session_ready' });
     await expect(second).resolves.toEqual({ phase: 'session_ready' });
+  });
+
+  it('rejects a queued session check when the process stops during a state read', async () => {
+    const { core, posted } = createProcess();
+
+    const stateRead = core.getState();
+    const sessionCheck = core.checkSession();
+    core.stop();
+
+    await expect(stateRead).rejects.toThrow('Процесс ядра остановлен.');
+    await expect(sessionCheck).rejects.toThrow('Процесс ядра остановлен.');
+    expect(
+      posted.filter((command) => command.type === 'onboarding.checkSession'),
+    ).toHaveLength(0);
+  });
+
+  it('rejects a queued state read when host.error arrives during a session check', async () => {
+    const { core, emitMessage, posted } = createProcess();
+    const sessionCheck = core.checkSession();
+    const stateRead = core.getState();
+    const sessionCheckResult = sessionCheck.catch((error: unknown) => error);
+    const stateReadResult = stateRead.catch((error: unknown) => error);
+
+    emitMessage({ type: 'host.error', message: 'check failed' });
+
+    await expect(sessionCheckResult).resolves.toMatchObject({
+      message: 'check failed',
+    });
+    await expect(stateReadResult).resolves.toMatchObject({
+      message: 'check failed',
+    });
+    expect(
+      posted.filter((command) => command.type === 'onboarding.getState'),
+    ).toHaveLength(0);
+  });
+
+  it('rejects a queued session check when the preceding state read times out', async () => {
+    vi.useFakeTimers();
+    const { core, posted } = createProcess();
+
+    const stateRead = core.getState();
+    const sessionCheck = core.checkSession();
+    const stateReadOutcome = stateRead.catch((error: unknown) =>
+      errorMessage(error),
+    );
+    const sessionCheckOutcome = sessionCheck.catch((error: unknown) =>
+      errorMessage(error),
+    );
+    await vi.advanceTimersByTimeAsync(REQUEST_TIMEOUT_MS);
+
+    expect(await stateReadOutcome).toContain('Истекло время');
+    expect(await sessionCheckOutcome).toContain('Истекло время');
+    expect(
+      posted.filter((command) => command.type === 'onboarding.checkSession'),
+    ).toHaveLength(0);
   });
 
   it('clears the pending slot on timeout so a later request is accepted', async () => {
@@ -201,7 +454,7 @@ describe('CoreProcess request bridge', () => {
     ).toHaveLength(2);
 
     emitMessage({
-      type: 'onboarding.changed',
+      type: 'onboarding.stateResult',
       state: { phase: 'credentials' },
     });
     await expect(settleWithin(second, 50)).resolves.toEqual({
@@ -214,7 +467,7 @@ describe('CoreProcess request bridge', () => {
 
     const pending = core.getState();
     emitMessage({
-      type: 'onboarding.changed',
+      type: 'onboarding.stateResult',
       state: { phase: 'session_ready' },
     });
     await expect(pending).resolves.toEqual({ phase: 'session_ready' });
@@ -232,7 +485,10 @@ describe('CoreProcess request bridge', () => {
     const { core, emitMessage, onChanged } = createProcess();
 
     core.start();
-    emitMessage({ type: 'onboarding.changed', state: { phase: 'welcome' } });
+    emitMessage({
+      type: 'onboarding.changed',
+      state: { phase: 'welcome' },
+    });
     emitMessage({
       type: 'onboarding.changed',
       state: { phase: 'credentials' },
@@ -300,7 +556,7 @@ describe('CoreProcess request bridge', () => {
     ).toHaveLength(1);
 
     emitMessage({
-      type: 'onboarding.changed',
+      type: 'onboarding.stateResult',
       state: { phase: 'session_ready' },
     });
     await expect(pending).resolves.toEqual({ phase: 'session_ready' });
@@ -507,5 +763,63 @@ describe('CoreProcess lectures', () => {
     );
     await core.shutdown(10_000);
     expect(core.getStatus()).toBe('stopped');
+  });
+});
+
+describe('worker startup arguments', () => {
+  it('passes development mode by default', () => {
+    const fork = vi.fn(() => createFakeChild().child);
+
+    const core = new CoreProcess(
+      {
+        entryPath: '/entry.js',
+        userDataDir: '/data',
+        initialShowLectureWindow: true,
+        fork,
+      },
+      {
+        onChanged: vi.fn(),
+        onStatusChanged: vi.fn(),
+        onNotification: vi.fn(),
+        onLecturesChanged: vi.fn(),
+      },
+    );
+    core.start();
+
+    expect(fork).toHaveBeenCalledWith('/entry.js', [
+      '/data',
+      '0',
+      '',
+      'development',
+    ]);
+  });
+
+  it('passes packaged mode and preserves an empty external channel', () => {
+    const fork = vi.fn(() => createFakeChild().child);
+
+    const core = new CoreProcess(
+      {
+        entryPath: '/entry.js',
+        userDataDir: '/data',
+        initialShowLectureWindow: true,
+        externalChannel: '',
+        runtimeMode: 'packaged',
+        fork,
+      },
+      {
+        onChanged: vi.fn(),
+        onStatusChanged: vi.fn(),
+        onNotification: vi.fn(),
+        onLecturesChanged: vi.fn(),
+      },
+    );
+    core.start();
+
+    expect(fork).toHaveBeenCalledWith('/entry.js', [
+      '/data',
+      '1',
+      '',
+      'packaged',
+    ]);
   });
 });

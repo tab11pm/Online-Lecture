@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { History, Plus } from 'lucide-react';
 import type { AgendaItem, LecturesView } from '../../../shared/lectures.js';
 import { desktop } from '../api';
 import { AgendaList } from './AgendaList';
@@ -8,10 +9,15 @@ import { LectureStatus } from './LectureStatus';
 import { ManualLectureWizard } from './ManualLectureWizard';
 import { ScheduleEditor } from './ScheduleEditor';
 import { SettingsPanel } from './SettingsPanel';
+import { Modal } from './Modal';
+import { Trash2, X } from 'lucide-react';
+import { toDisplayDate } from '../date-time-input';
 
 export interface MainScreenProps {
   onCheckSession(): void;
   onOpenJournal(): void;
+  active?: boolean;
+  checkingSession?: boolean;
 }
 
 function message(error: unknown): string {
@@ -20,12 +26,30 @@ function message(error: unknown): string {
     : 'Не удалось выполнить действие.';
 }
 
-export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
+function todayLabel(): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date());
+}
+
+export function MainScreen({
+  onCheckSession,
+  onOpenJournal,
+  active = true,
+  checkingSession = false,
+}: MainScreenProps) {
+  const addPairButtonRef = useRef<HTMLButtonElement>(null);
   const [view, setView] = useState<LecturesView>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
   const [showWizard, setShowWizard] = useState(false);
   const [editing, setEditing] = useState<AgendaItem>();
+  const [editingMode, setEditingMode] = useState<'time' | 'move'>('time');
+  const [confirmingDelete, setConfirmingDelete] = useState<AgendaItem>();
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string>();
 
   useEffect(
     () =>
@@ -59,78 +83,207 @@ export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
     action.catch((reason: unknown) => setError(message(reason)));
   }
 
+  function confirmDelete(item: AgendaItem): void {
+    setDeleteError(undefined);
+    setConfirmingDelete(item);
+  }
+
+  async function deleteConfirmed(): Promise<void> {
+    if (!confirmingDelete || deleting) return;
+    setDeleting(true);
+    setDeleteError(undefined);
+    try {
+      await desktop.lectures.deleteLecture(
+        confirmingDelete.jobId,
+        confirmingDelete.source === 'timetable'
+          ? confirmingDelete.occurrenceId
+          : undefined,
+      );
+      setConfirmingDelete(undefined);
+    } catch (reason) {
+      setDeleteError(message(reason));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
-    <main>
-      <h1>Online Lecture</h1>
-      <button type="button" onClick={onOpenJournal}>
-        Журнал
-      </button>
-      {notice ? <p role="alert">{notice}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-      {view ? (
-        <>
-          <LectureStatus
-            view={view}
-            onStop={() => run(desktop.lectures.stopCurrent())}
-          />
-          <ImportPanel
-            view={view.import}
-            onImport={() => run(desktop.lectures.importNow())}
-          />
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <p className="page-head__date">{todayLabel()}</p>
+          <h1>Online Lecture</h1>
+          <p className="page-head__sub">
+            Ближайшие пары и состояние подключения. Всё хранится локально.
+          </p>
+        </div>
+        <div className="page-actions">
           <button
             type="button"
+            className="btn btn--ghost"
+            onClick={onOpenJournal}
+          >
+            <History size={15} strokeWidth={1.8} aria-hidden="true" />
+            Журнал
+          </button>
+          <button
+            type="button"
+            ref={addPairButtonRef}
+            className="btn btn--primary"
             onClick={() => {
               setShowWizard(true);
               setEditing(undefined);
             }}
           >
+            <Plus size={16} strokeWidth={2} aria-hidden="true" />
             Добавить пару
           </button>
-          {showWizard ? (
-            <ManualLectureWizard
-              onClose={() => setShowWizard(false)}
-              onAuthRequired={onCheckSession}
+        </div>
+      </div>
+
+      {notice ? (
+        <p role="alert" className="alert">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="alert alert--error">
+          {error}
+        </p>
+      ) : null}
+
+      {view ? (
+        <div className="workspace">
+          <div className="column">
+            <LectureStatus
+              view={view}
+              onStop={() => run(desktop.lectures.stopCurrent())}
             />
-          ) : null}
-          {editing ? (
-            <ScheduleEditor
-              item={editing}
-              onClose={() => setEditing(undefined)}
+            <AgendaList
+              agenda={view.agenda}
+              onEdit={(item, mode = 'time') => {
+                setEditing(item);
+                setEditingMode(mode);
+                setShowWizard(false);
+              }}
+              onDelete={confirmDelete}
+              onCancelReschedule={(item) =>
+                run(desktop.lectures.cancelReschedule(item.jobId))
+              }
+              onSetSkipped={(item: AgendaItem, skipped: boolean) =>
+                run(
+                  desktop.lectures.setSkipped(
+                    item.jobId,
+                    item.occurrenceId,
+                    skipped,
+                  ),
+                )
+              }
             />
-          ) : null}
-          <AgendaList
-            agenda={view.agenda}
-            onEdit={(item) => {
-              setEditing(item);
-              setShowWizard(false);
-            }}
-            onDelete={(item) =>
-              run(
-                desktop.lectures.deleteLecture(
-                  item.jobId,
-                  item.source === 'timetable' ? item.occurrenceId : undefined,
-                ),
-              )
-            }
-            onCancelReschedule={(item) =>
-              run(desktop.lectures.cancelReschedule(item.jobId))
-            }
-            onSetSkipped={(item: AgendaItem, skipped: boolean) =>
-              run(
-                desktop.lectures.setSkipped(
-                  item.jobId,
-                  item.occurrenceId,
-                  skipped,
-                ),
-              )
-            }
-          />
-        </>
+          </div>
+          <aside className="column">
+            <ImportPanel
+              view={view.import}
+              onImport={() => desktop.lectures.importNow()}
+            />
+            <ChromiumBanner />
+            <SettingsPanel
+              onCheckSession={onCheckSession}
+              checkingSession={checkingSession}
+            />
+          </aside>
+        </div>
       ) : (
-        <p role="status">Загрузка…</p>
+        <p role="status" className="empty">
+          Загрузка…
+        </p>
       )}
-      <ChromiumBanner />
-      <SettingsPanel onCheckSession={onCheckSession} />
-    </main>
+
+      {showWizard ? (
+        <ManualLectureWizard
+          active={active}
+          onClose={() => setShowWizard(false)}
+          onAuthRequired={onCheckSession}
+        />
+      ) : null}
+      {editing ? (
+        <ScheduleEditor
+          active={active}
+          item={editing}
+          initialMode={editingMode}
+          onClose={() => setEditing(undefined)}
+        />
+      ) : null}
+      {confirmingDelete ? (
+        <Modal
+          titleId="delete-confirmation-title"
+          onClose={() => setConfirmingDelete(undefined)}
+          busy={deleting}
+          active={active}
+          fallbackFocus={() => addPairButtonRef.current}
+        >
+          <header className="modal__head">
+            <div>
+              <p className="eyebrow">Подтвердите действие</p>
+              <h2 id="delete-confirmation-title">
+                {confirmingDelete.source === 'manual'
+                  ? 'Удалить пару?'
+                  : 'Скрыть пару?'}
+              </h2>
+            </div>
+            <button
+              type="button"
+              className="icon-btn"
+              aria-label="Закрыть"
+              onClick={() => setConfirmingDelete(undefined)}
+              disabled={deleting}
+            >
+              <X size={17} aria-hidden="true" />
+            </button>
+          </header>
+          <div className="modal__scroll confirmation-copy">
+            <p className="confirmation-copy__title">{confirmingDelete.title}</p>
+            <p>
+              {toDisplayDate(confirmingDelete.date)} · {confirmingDelete.joinAt}
+              –{confirmingDelete.leaveAt}
+            </p>
+            <p>
+              {confirmingDelete.source === 'manual'
+                ? 'Вся ручная запись будет удалена: все повторы исчезнут из расписания. История запусков останется.'
+                : 'Эта пара будет скрыта в вашем расписании. Другие занятия останутся без изменений.'}
+            </p>
+          </div>
+          {deleteError ? (
+            <p role="alert" className="field-error">
+              Не удалось выполнить действие: {deleteError}
+            </p>
+          ) : null}
+          <footer className="modal__actions">
+            <button
+              type="button"
+              className="btn btn--danger"
+              onClick={() => void deleteConfirmed()}
+              disabled={deleting}
+            >
+              <Trash2 size={15} aria-hidden="true" />
+              {deleting
+                ? 'Выполняется…'
+                : confirmingDelete.source === 'manual'
+                  ? 'Удалить пару'
+                  : 'Скрыть пару'}
+            </button>
+            <button
+              type="button"
+              className="btn btn--ghost"
+              onClick={() => setConfirmingDelete(undefined)}
+              disabled={deleting}
+            >
+              <X size={15} aria-hidden="true" />
+              Отмена
+            </button>
+          </footer>
+        </Modal>
+      ) : null}
+    </div>
   );
 }

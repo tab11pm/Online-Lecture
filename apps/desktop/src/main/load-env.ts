@@ -110,3 +110,18 @@ export function applySqliteBindingDefault(
     'better_sqlite3.node',
   );
 }
+
+/**
+ * Packaged builds always use the native module shipped next to the app.
+ * The resource path is trusted; an inherited binding cannot point elsewhere.
+ */
+export function applyPackagedSqliteBinding(
+  env: NodeJS.ProcessEnv,
+  resourcesPath: string,
+): void {
+  env.ONLINE_LECTURE_SQLITE_BINDING = join(
+    resourcesPath,
+    'native',
+    'better_sqlite3.node',
+  );
+}

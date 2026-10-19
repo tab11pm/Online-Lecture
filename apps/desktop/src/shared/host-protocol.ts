@@ -60,6 +60,7 @@ export type MainCommand =
 export type HostEvent =
   | { type: 'host.ready' }
   | { type: 'onboarding.changed'; state: OnboardingState }
+  | { type: 'onboarding.stateResult'; state: OnboardingState }
   | { type: 'onboarding.loginResult'; outcome: LoginOutcome }
   | { type: 'lectures.changed'; view: LecturesView }
   | { type: 'journal.result'; requestId: string; ok: true; page: JournalPage }

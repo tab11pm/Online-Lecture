@@ -131,6 +131,7 @@ beforeEach(() => {
   vi.mocked(fake.api.lectures.importNow).mockClear();
   vi.mocked(fake.api.lectures.stopCurrent).mockClear();
   vi.mocked(fake.api.lectures.setSkipped).mockClear();
+  vi.mocked(fake.api.lectures.deleteLecture).mockClear();
   vi.mocked(fake.api.app.setShowLectureWindow).mockClear();
   vi.mocked(fake.api.app.getShowLectureWindow).mockClear();
   vi.mocked(fake.api.app.getBrowser).mockResolvedValue({
@@ -142,6 +143,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 describe('main screen', () => {
@@ -155,27 +157,48 @@ describe('main screen', () => {
 
   it('keeps the current main view and editor state when returning from the journal', async () => {
     render(<App />);
-    fireEvent.click(
-      await screen.findByRole('button', { name: 'Добавить пару' }),
-    );
+    const opener = await screen.findByRole('button', { name: 'Добавить пару' });
+    opener.focus();
+    fireEvent.click(opener);
+    fireEvent.change(screen.getByLabelText('Курс СДО или ссылка на курс'), {
+      target: { value: 'Сохранённый запрос' },
+    });
     fireEvent.click(screen.getByRole('button', { name: 'Журнал' }));
     expect(
       await screen.findByRole('heading', { name: 'Журнал' }),
     ).toBeVisible();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Назад' }));
-    expect(screen.getByRole('region', { name: 'Добавить пару' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Добавить пару' })).toBeVisible();
+    expect(screen.getByLabelText('Курс СДО или ссылка на курс')).toHaveValue(
+      'Сохранённый запрос',
+    );
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(opener).toHaveFocus();
     expect(fake.getView).toHaveBeenCalledTimes(1);
   });
   it('opens schedule editing and routes deletion to the selected occurrence', async () => {
     show({ agenda: [item()] });
     render(<App />);
     fireEvent.click(
-      await screen.findByRole('button', { name: 'Изменить / перенести' }),
+      await screen.findByRole('button', {
+        name: 'Действия для пары: Математический анализ',
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Изменить время' }),
     );
     expect(
-      screen.getByRole('region', { name: /Изменить Математический анализ/ }),
+      screen.getByRole('dialog', { name: 'Математический анализ' }),
     ).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Действия для пары: Математический анализ',
+      }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Скрыть пару' }));
+    expect(screen.getByRole('dialog', { name: 'Скрыть пару?' })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть пару' }));
     expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith(
       'job-1',
@@ -191,14 +214,139 @@ describe('main screen', () => {
       ],
     });
     render(<App />);
-    const buttons = await screen.findAllByRole('button', {
-      name: 'Скрыть пару',
+    const actionButtons = await screen.findAllByRole('button', {
+      name: /Действия для пары/,
     });
-    fireEvent.click(buttons[1]!);
+    fireEvent.click(actionButtons[1]!);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Скрыть пару' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Скрыть пару' }));
     expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith(
       'job-1',
       'occ-second',
     );
+  });
+
+  it('requires confirmation before hiding a timetable occurrence', async () => {
+    show({ agenda: [item()] });
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Действия для пары: Математический анализ',
+      }),
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Скрыть пару' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+    expect(fake.api.lectures.deleteLecture).not.toHaveBeenCalled();
+  });
+
+  it('keeps a delete confirmation open while pending and reports API errors', async () => {
+    vi.mocked(fake.api.lectures.deleteLecture).mockRejectedValueOnce(
+      new Error('Хранилище занято'),
+    );
+    show({ agenda: [item({ source: 'manual' })] });
+    render(<App />);
+    fireEvent.click(
+      (await screen.findAllByRole('button', { name: /Действия для пары/ }))[0]!,
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Удалить' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить пару' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Хранилище занято',
+    );
+    expect(screen.getByRole('dialog', { name: 'Удалить пару?' })).toBeVisible();
+    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledOnce();
+  });
+
+  it('prevents duplicate confirmation submits and cannot dismiss while pending', async () => {
+    let finish!: () => void;
+    vi.mocked(fake.api.lectures.deleteLecture).mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    show({ agenda: [item({ source: 'manual' })] });
+    render(<App />);
+    fireEvent.click(
+      (await screen.findAllByRole('button', { name: /Действия для пары/ }))[0]!,
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Удалить' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить пару' }));
+    expect(screen.getByRole('button', { name: 'Выполняется…' })).toBeDisabled();
+    fireEvent.keyDown(screen.getByRole('dialog'), { key: 'Escape' });
+    expect(screen.getByRole('dialog', { name: 'Удалить пару?' })).toBeVisible();
+    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledOnce();
+    finish();
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('moves focus to Add pair if the worker removes the deleted row before the dialog closes', async () => {
+    show({ agenda: [item({ source: 'manual' })] });
+    render(<App />);
+    const trigger = (
+      await screen.findAllByRole('button', { name: /Действия для пары/ })
+    )[0]!;
+    fireEvent.click(trigger);
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Удалить' }));
+    expect(
+      screen.getByText(/все повторы исчезнут.*История запусков останется/i),
+    ).toBeVisible();
+    vi.mocked(fake.api.lectures.deleteLecture).mockImplementationOnce(
+      async () => {
+        fake.emit({ agenda: [], import: { status: 'idle' } });
+      },
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Удалить пару' }));
+    await waitFor(() =>
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument(),
+    );
+    expect(trigger).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Добавить пару' })).toHaveFocus();
+  });
+
+  it('returns focus to the action trigger when the menu closes with Escape or opens an editor', async () => {
+    show({ agenda: [item()] });
+    render(<App />);
+    const trigger = (
+      await screen.findAllByRole('button', { name: /Действия для пары/ })
+    )[0]!;
+    fireEvent.click(trigger);
+    const firstAction = await screen.findByRole('menuitem', {
+      name: 'Пропустить',
+    });
+    fireEvent.keyDown(firstAction, { key: 'Escape' });
+    expect(trigger).toHaveFocus();
+    fireEvent.click(trigger);
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Изменить время' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
+    expect(trigger).toHaveFocus();
+  });
+
+  it('dismisses an action menu when the user clicks outside it', async () => {
+    show({ agenda: [item()] });
+    render(<App />);
+    fireEvent.click(
+      (await screen.findAllByRole('button', { name: /Действия для пары/ }))[0]!,
+    );
+    expect(await screen.findByRole('menu')).toBeVisible();
+    fireEvent.pointerDown(screen.getByRole('heading', { name: 'Статус' }));
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
+  it('shows a clear skipped state and keeps the restore action available', async () => {
+    show({ agenda: [item({ skipped: true, runStatus: 'skipped' })] });
+    render(<App />);
+    expect(await screen.findByText(/пропущена/i)).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: 'Действия для пары: Математический анализ',
+      }),
+    );
+    expect(screen.getByRole('menuitem', { name: 'Вернуть' })).toBeVisible();
   });
 
   it('opens the manual lecture wizard from the main screen', async () => {
@@ -206,7 +354,7 @@ describe('main screen', () => {
     fireEvent.click(
       await screen.findByRole('button', { name: 'Добавить пару' }),
     );
-    expect(screen.getByRole('region', { name: 'Добавить пару' })).toBeVisible();
+    expect(screen.getByRole('dialog', { name: 'Добавить пару' })).toBeVisible();
   });
 
   it('shows core notifications in an alert and unsubscribes on unmount', async () => {
@@ -258,6 +406,7 @@ describe('main screen', () => {
       await screen.findByText('Сейчас идёт: Физика, до 10:25'),
     ).toBeVisible();
     expect(screen.getByText('Состояние: подключено')).toBeVisible();
+    expect(screen.queryByText('Окончание в 10:25')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Остановить' }));
     expect(fake.api.lectures.stopCurrent).toHaveBeenCalledTimes(1);
   });
@@ -371,7 +520,7 @@ describe('main screen', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Нет связи с timetable',
     );
-    const retry = screen.getByRole('button', { name: 'Обновить расписание' });
+    const retry = screen.getByRole('button', { name: 'Повторить обновление' });
     expect(retry).toBeEnabled();
     fireEvent.click(retry);
     expect(fake.api.lectures.importNow).toHaveBeenCalledTimes(1);
@@ -386,13 +535,21 @@ describe('main screen', () => {
     });
     render(<App />);
 
-    fireEvent.click(await screen.findByRole('button', { name: 'Пропустить' }));
+    fireEvent.click(
+      (await screen.findAllByRole('button', { name: /Действия для пары/ }))[0]!,
+    );
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Пропустить' }),
+    );
     expect(fake.api.lectures.setSkipped).toHaveBeenCalledWith(
       'job-1',
       'occ-1',
       true,
     );
-    fireEvent.click(screen.getByRole('button', { name: 'Вернуть' }));
+    fireEvent.click(
+      screen.getAllByRole('button', { name: /Действия для пары/ })[1]!,
+    );
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Вернуть' }));
     expect(fake.api.lectures.setSkipped).toHaveBeenCalledWith(
       'job-2',
       'occ-2',
@@ -548,7 +705,14 @@ describe('main screen', () => {
       new Error('Не удалось пропустить'),
     );
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Пропустить' }));
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Действия для пары: Математический анализ',
+      }),
+    );
+    fireEvent.click(
+      await screen.findByRole('menuitem', { name: 'Пропустить' }),
+    );
     expect(await screen.findByRole('alert')).toHaveTextContent(
       'Не удалось пропустить',
     );

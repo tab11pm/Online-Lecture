@@ -1,11 +1,13 @@
 import { join } from 'node:path';
-import { loadMcpConfig } from '@core/config/mcp-config.js';
 import { createAppPaths } from '../shared/paths.js';
 import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
+import { decodeWorkerStartup } from '../shared/worker-startup.js';
+import { loadDesktopMcpConfig } from './desktop-mcp-config.js';
 import { CoreHost, type HostTransport } from './core-host.js';
 import { createCoreLog } from './core-log.js';
 import { createLectureAdapters } from './lecture-adapters.js';
 import { createFakeLectureAdapters } from './lecture-adapters.fake.js';
+import { createFakeClock } from './fake-clock.js';
 import { LectureService, type LectureAdapters } from './lecture-service.js';
 import { SdoMcpSessionProvider } from './sdo-mcp-session-provider.js';
 import { FakeSessionProvider } from './session-provider.fake.js';
@@ -31,10 +33,8 @@ function resolveParentPort(): ParentPortLike {
   return port;
 }
 
-const userDataDir = process.argv[2];
-if (!userDataDir) {
-  throw new Error('worker/entry requires the userData directory argument');
-}
+const startup = decodeWorkerStartup(process.argv.slice(2));
+const userDataDir = startup.userDataDir;
 
 const parentPort = resolveParentPort();
 const transport: HostTransport = {
@@ -52,13 +52,17 @@ const paths = createAppPaths(userDataDir);
 const log = createCoreLog(join(paths.logs, 'core.log'));
 
 const fakeSession = process.env.ONLINE_LECTURE_FAKE_SESSION === '1';
+const now = fakeSession ? createFakeClock() : () => new Date();
 
 function createProvider(): SdoMcpSessionProvider | FakeSessionProvider {
   if (fakeSession) {
     return new FakeSessionProvider();
   }
-  const config = loadMcpConfig();
-  const externalChannel = process.argv[3] === '1' ? process.argv[4] : undefined;
+  const config = loadDesktopMcpConfig({
+    runtimeMode: startup.runtimeMode,
+    platform: process.platform,
+  });
+  const externalChannel = startup.externalChannel;
   // Command and source only: the server environment carries credentials.
   log.info(
     `sdo-mcp source=${config.source ?? 'unknown'} command=${[config.serverPath, ...(config.args ?? [])].join(' ')}`,
@@ -75,7 +79,7 @@ function createAdapters(): LectureAdapters {
       createMcpClient: () => provider.createClient(paths.authState),
     });
   }
-  return createFakeLectureAdapters(() => new Date());
+  return createFakeLectureAdapters(now);
 }
 
 const adapters = createAdapters();
@@ -89,7 +93,7 @@ new CoreHost(transport, {
       databasePath: paths.database,
       sqliteBinding: process.env.ONLINE_LECTURE_SQLITE_BINDING,
       adapters,
-      now: () => new Date(),
+      now,
       onView: events.onView,
       onAuthRequired: events.onAuthRequired,
       onJournalEvent: events.onJournalEvent,

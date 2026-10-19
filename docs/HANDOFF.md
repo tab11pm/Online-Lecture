@@ -1,5 +1,105 @@
 # Handoff — Online Lecture: автоимпорт расписания ТУСУР
 
+## Windows: закрытие двух замечаний policy review (2026-10-20)
+
+Второй policy-fix pass закрыл замечания об assisted NSIS per-user-only и packaged browser override. Browser channel теперь захватывается отдельной runtime-policy функцией только в development; packaged controller и worker получают `undefined`, а сохранённый выбор Chromium доходит до MCP как пустой `SDO_BROWSER_CHANNEL`. Регрессия использует настоящий runtime policy и BrowserController для унаследованных `msedge` и пустого значения; development сохраняет оба override.
+
+NSIS сохраняет assisted-установщик. Ранний `customInstallMode` сводит мастер к текущему пользователю; проверка политики завершает явный `/allusers` с кодом ошибки без UAC и до секций установки или удаления. `customHeader` подключает переопределение макроса `initMultiUser` для последующего раскрытия `.onInit` и `un.onInit`. Шаблон всё ещё может выполнить `SetOutPath`, включить журналирование или проверить работающий процесс до проверки политики; гарантии отсутствия этих предварительных действий нет. Файлы приложения и его регистрационные записи при отклонённом вызове не должны изменяться. Правила сохранения пользовательских данных при удалении и очистки автозапуска оставлены прежними. Установленные шаблоны electron-builder 26 проверены; сгенерированные установщик и деинсталлятор собраны локальным компилятором NSIS на синтетическом временном приложении.
+
+Целевые тесты: 57 PASS; усиленная проверка runtime-policy/CoreProcess — 44 PASS. Два новых packaged-сценария сначала падали на унаследованных `externalChannel='msedge'`/`''`, затем прошли после исправления. Аргументы worker проверяются через настоящий `CoreProcess.start()` и вызов `fork`. Независимое ревью принято после уточнения границ гарантии `/allusers`.
+
+Итоговые проверки Codex: core 328 PASS; desktop 426 PASS и 5 opt-in SKIP с `--no-file-parallelism`; `npm run build` и production-сборка desktop PASS; ESLint, Prettier и `git diff --check` PASS. Известный таймаут параллельного renderer-теста из предыдущего этапа не исправлялся. Компиляция NSIS подтверждает синтаксис и раскрытие макросов, но не поведение Windows. Все новые проверки на чистой Windows из `docs/windows-smoke.md` остаются невыполненными; установка, тихий запуск, удаление, UAC и GUI на Windows не запускались. Реальные SSO/BBB не использовались, скачиваний и изменений `node_modules` не было; `online-lecture-source.zip` сохранён.
+
+## Исправления трёх замечаний упаковки под контролем Codex (2026-10-20)
+
+По просьбе пользователя реализацию выполнила GPT-6 Luna; отдельная Luna проверила изменения, Codex контролировал процесс и запускал общие проверки. Добавлены проверки обязательных runtime entry-файлов MCP/Playwright/SQLite и выхода их путей за пакет, обнаружение browser profile/session data в ASAR и распакованных ресурсах, вызов настоящего runtime smoke из opt-in packaged E2E с изолированным cwd и системным PATH. Фикстуры не содержат реальных сессий. Исправлены найденные при контроле побочные эффекты: чистый пакет под родительским каталогом `profiles` разрешён, исходники `undici/lib/web/cookies` разрешены, Chromium/Edge profile trees с произвольными LevelDB-файлами отклоняются. Путь packaged executable должен указывать на файл.
+
+Проверки итогового кода: core 328 PASS; desktop 422 PASS, 5 opt-in SKIP при `npm test -w @online-lecture/desktop -- --no-file-parallelism`; `npm run build`, целевые packaging-регрессии, ESLint/Prettier изменённых TypeScript-файлов и `git diff --check` PASS. Обычный параллельный `npm test` дважды воспроизвёл ранее описанный таймаут `offers Chromium installation from the credentials screen` (`readyRadio`); отдельно renderer-файл прошёл 23/23. Поэтому стандартный параллельный прогон нельзя считать стабильно зелёным. Renderer-код в этих исправлениях не менялся.
+
+Исправлены именно три замечания предыдущего ответа Codex. Дополнительные пункты параллельного ревью о NSIS per-user-only и packaged browser override остаются открытыми; см. `docs/reviews/2026-10-20-windows-packaging.md`. Windows-артефакт и настоящий Windows runtime smoke не запускались. Все изменения оставлены в текущем checkout без коммита; несвязанный `online-lecture-source.zip` сохранён.
+
+## Windows: ревью после реализации (2026-10-20)
+
+Перечитан текущий HEAD `68e6b94` и выполнены доступные проверки без изменения production-кода. Итоговый `npm test`: 328 core + 401 desktop PASS (5 opt-in SKIP); core/desktop typecheck и production build PASS. Dev Electron E2E с ранее установленными браузерами (`PLAYWRIGHT_BROWSERS_PATH=/tmp/online-lecture-playwright-browsers`) прошли 4/4; packaged Windows case пропущен. Прежний blocker отсутствующего Chromium для dev E2E снят. Единичный renderer timeout в первом параллельном прогоне не повторился отдельно и в двух последующих suite-прогонах.
+
+Этот исторический review-state позже исправлен: package validator теперь проверяет профили и обязательные runtime entry-файлы, executable smoke подключён к opt-in packaged E2E, NSIS ограничен per-user режимом, а packaged browser override отключён. Подробности: `docs/reviews/2026-10-20-windows-packaging.md`. Linux-гейты не означают принятую Windows-упаковку. Windows-артефакт, установка и runtime на Windows ещё не проверены. Архив `online-lecture-source.zip` не трогать.
+
+## Windows: реализация упаковки (2026-10-19)
+
+Реализованы задачи 1–4 и 5.1 плана
+`docs/superpowers/plans/2026-10-19-windows-packaging.md`; 5.2 закрыт по unit/build,
+но dev Electron E2E заблокирован окружением. Production-код изменён, Windows-артефакт
+ещё не собирался и на Windows не запускался.
+
+- **Runtime.** `initializeRuntimeEnvironment` вызывается до worker: dev читает `.env`
+  и сохраняет явный `ONLINE_LECTURE_SQLITE_BINDING`, packaged не читает env-файлы и
+  принудительно использует `resources/native/better_sqlite3.node`. Режим передаётся
+  worker доверенным четвёртым аргументом (`shared/worker-startup.ts`), а не env.
+  Packaged MCP запускается только из bundled entry через Electron Node; dotenv
+  направлен на `NUL`/`/dev/null`, а `SDO_MCP_SERVER_PATH/CWD` удаляются из окружения.
+- **Identity.** Добавлены `ru.onlinelecture.desktop`, `OnlineLecture.exe`,
+  `productName=Online Lecture`, single-instance guard до запуска worker и
+  автозапуск с явным именем `Online Lecture`.
+- **Зависимости и проверки.** `better-sqlite3` и `jsdom` объявлены production,
+  `@electron/asar` — прямая dev-зависимость. `scripts/native-build-check.ts`
+  проверяет stamp, PE и x64; `scripts/packaged-app-check.ts` читает реальный ASAR,
+  рекурсивный production-граф, запрещённые файлы, symlink/выход за каталог и SHA-256
+  native-модуля.
+- **Сборка.** `electron-builder.yml`, `build/installer.nsh` и
+  `scripts/package-windows.ts` добавляют `pack:win`/`dist:win` только для Windows x64:
+  проверка версий Playwright → build native → native check → `--dir` → проверка
+  пакета → при необходимости NSIS из `--prepackaged` → `.sha256`. На Linux команда
+  завершается ошибкой без артефакта. Uninstaller удаляет только Run-значение
+  `Online Lecture`.
+- **Проверка.** Добавлены packaged E2E-ветка харнесса (`ONLINE_LECTURE_PACKAGED_EXECUTABLE`,
+  только Windows), `tests/e2e/packaged-runtime.test.ts`, executable smoke
+  (`scripts/packaged-runtime-smoke.ts`) и `docs/windows-smoke.md`.
+
+Гейты на Linux: `npm test` — 328 core + 400 desktop (5 opt-in пропусков);
+`npm run build`, production build desktop, ESLint/Prettier изменённых файлов,
+`git diff --check` прошли. Dev Electron E2E (`CI_ELECTRON_E2E=1 … tests/e2e`) не
+прошли: в окружении отсутствует Playwright Chromium, приложение показывает
+«Chromium не установлен»; это не результат изменений упаковки и требует установки
+браузера. Windows-команды на Linux корректно отказывают. **Не проверены:** сборка
+NSIS, запуск `OnlineLecture.exe`, Edge/DPAPI/трей/уведомления/автозапуск, реальная
+установка/обновление/uninstall и packaged smoke на чистой Windows.
+
+## Windows: проект дизайна упаковки (2026-10-19)
+
+Подготовлен `docs/superpowers/specs/2026-10-19-windows-packaging-design.md` и OpenSpec `windows-packaging`. Предлагаются per-user NSIS x64, отдельный native-ресурс SQLite, распакованный production-граф, запрет `.env` в packaged main/MCP, стабильный appId и single-instance. Chromium остаётся загрузкой по кнопке; данные сохраняются при обновлении и uninstall. Публичная публикация, подпись и автообновления не входят в этап.
+
+Пользователь согласовал дизайн и план `docs/superpowers/plans/2026-10-19-windows-packaging.md` (пять задач), затем передал реализацию DeepSeek. Luna не запускается; Codex может проверить получившиеся изменения после реализации. OpenSpec tasks пока не выполнены, production-код не менялся. Проверены форматирование и `git diff --check`; OpenSpec CLI не установлен, автоматическая валидация не выполнена. Windows-установщик ещё не создавался и на Windows не проверялся.
+
+## Windows: предварительный аудит упаковки (2026-10-19)
+
+Следующий этап проверен без изменения production-кода; Luna выполнила независимый read-only аудит. Конфига electron-builder/NSIS и команды упаковки пока нет. `jsdom` нужен worker во время выполнения, но объявлен в desktop devDependencies; `better-sqlite3` объявлен только в корне workspace. Будущая упаковка должна явно включать production-зависимости, Electron-native SQLite, SDO MCP и его зависимости, Playwright CLI и согласованные пути вне ASAR.
+
+Packaged-режим пока не отделён от dev-загрузки `.env` в main; установленный SDO MCP также импортирует `dotenv/config`. Нужно исключить чтение учётных данных из `.env` во всей цепочке main → worker → MCP, не только исключить файл из архива.
+
+Пользователь уточнил, что прежнее требование `SPEC.md` включать Chromium в установщик устарело. Актуальна существующая политика `chromium-choice-install`: Edge по умолчанию на Windows, Chromium не входит в установщик и загружается только по кнопке. `SPEC.md` и roadmap приведены к этой политике; противоречие больше не блокирует проектирование упаковки. Production-код и Windows-сборка не менялись. Обновлён desktop README: четыре E2E, пакетный запуск, отдельные профили и ошибка вместо пропуска при явном включении тестов.
+
+## Desktop: нативная Electron-проверка после дизайна (2026-10-19)
+
+Дизайн сохранён коммитом `994ded6`. Следующий проход проверяет собранное приложение на Linux/Electron 44.5.1 с отдельным временным профилем и фиктивной сессией в каждом сценарии. E2E запускает desktop-пакет, а не `out/main/index.js`, чтобы `app.getAppPath()` корректно находил нативную SQLite. Явный запуск с `CI_ELECTRON_E2E=1` больше не превращает ошибки окружения в пропуски.
+
+Нативный прогон выявил гонку: «Начать» во время начального `getState` не выполняло `checkSession`. Теперь разные операции выполняются последовательно, одинаковые объединяются; внутренний ответ `onboarding.stateResult` отделён от уведомлений `onboarding.changed`. Публичный renderer/preload API не менялся. Добавлены регрессии порядка запросов, посторонних уведомлений, остановки, таймаута и ошибки ядра.
+
+Только worker с `ONLINE_LECTURE_FAKE_SESSION=1` использует часы, начинающиеся в полдень текущей красноярской даты и продолжающие идти. Это устраняет зависимость демопары от вечернего перехода через полночь; реальные часы и правила расписания не изменены.
+
+Проверены четыре нативных E2E: вход; успешная лекция → ручная остановка → журнал; ошибочная лекция → журнал ошибок; добавление пары → перенос импортированной → отмена переноса → подтверждённое удаление ручной. Для запуска нужны собранная desktop-версия, Electron и Playwright Chromium с headless shell; команда и разбор находок — `openspec/changes/desktop-design-polish/electron-verification.md`.
+
+Итоговые гейты: `npm test` — 328 core + 333 desktop (четыре opt-in пропуска в обычном запуске); отдельный Electron-прогон — 4/4. Core/desktop typecheck, production build, ESLint и Prettier изменённых TypeScript-файлов прошли. Повторное независимое Luna-ревью закрыло замечание по разделению ответов и уведомлений.
+
+Windows/Edge, установщик, трей и автозапуск на Windows, DPAPI и реальные системы ТУСУР этим Linux-прогоном не проверены. Это следующий отдельный этап.
+
+## Desktop: доводка дизайна (2026-10-19)
+
+Текущие изменения в `fix/same-day-lecture-actions` сохраняют выбранный светлый/тёмный стиль и покрывают основной экран, меню пар, доступные модальные формы с закреплёнными действиями, ввод даты `ДД.ММ.ГГГГ` и времени `ЧЧ:ММ`, подтверждение удаления, компактный онбординг, журнал и состояния импорта/подключения. Обоснование и критерии: `openspec/changes/desktop-design-polish/`.
+
+Вход и проверка сессии блокируют повторную отправку и показывают ожидание; пароль очищается после отправки. Журнал различает пустую историю и отсутствие ошибок; ошибка следующей страницы сохраняет записи, повтор использует прежний cursor, устаревший ответ после смены фильтра не блокирует дальнейшую загрузку. Импорт показывает завершённые этапы, частичный результат и прежнее время обновления при ошибке. Ожидание комнаты и переподключение больше не выдаются за успешное присутствие. Ядро, IPC и хранение не менялись.
+
+Проверено: 318 desktop-тестов, четыре opt-in Electron E2E пропущены; desktop typecheck и production build; 92 браузерные компоновки (23 состояния, две темы, ширины 1000/600px), шесть сценариев ожидания/ошибок/повтора и десять регрессий предыдущего прохода форм. Следующий отдельный этап — ручная Windows/Electron-проверка.
+
 ## Desktop slice 3: уведомления и журнал (2026-10-19)
 
 Ветка `fix/same-day-lecture-actions` содержит slice 3 по [дизайну](superpowers/specs/2026-10-19-desktop-notifications-journal-design.md) и [OpenSpec](../openspec/changes/desktop-notifications-journal/tasks.md). SQLite хранит безопасные события с уникальными ключами; история запусков берётся из `runs` и переживает удаление пары. При старте worker восстанавливает недостающие события для завершённых запусков без старых уведомлений. Вход, необходимость нового входа, неоднозначный поиск, ошибка импорта/ядра и исход лекции создают новые события. `skipped` виден в журнале без системного уведомления.

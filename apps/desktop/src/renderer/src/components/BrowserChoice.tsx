@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { AppWindow, Download, Globe } from 'lucide-react';
 import type {
   BrowserChoice as Choice,
   BrowserView,
@@ -93,30 +94,34 @@ export function BrowserChoice({ bannerOwnsInstall }: BrowserChoiceProps) {
     view?.install.status === 'error' ? view.install.message : undefined;
 
   return (
-    <section aria-label="Настройка браузера">
+    <section className="browser-choice" aria-label="Настройка браузера">
       <fieldset disabled={!view || installing}>
         <legend>Браузер для автоматизации</legend>
-        <label>
-          <input
-            type="radio"
-            name="automation-browser"
-            checked={selected === 'edge'}
-            onChange={() => void select('edge')}
-          />
-          Edge (Windows)
-        </label>
-        <label>
-          <input
-            type="radio"
-            name="automation-browser"
-            checked={selected === 'chromium'}
-            onChange={() => void select('chromium')}
-          />
-          Chromium
-        </label>
+        <div className="radio-row">
+          <label className="radio-card">
+            <input
+              type="radio"
+              name="automation-browser"
+              checked={selected === 'edge'}
+              onChange={() => void select('edge')}
+            />
+            <Globe size={14} strokeWidth={1.8} aria-hidden="true" />
+            Edge (Windows)
+          </label>
+          <label className="radio-card">
+            <input
+              type="radio"
+              name="automation-browser"
+              checked={selected === 'chromium'}
+              onChange={() => void select('chromium')}
+            />
+            <AppWindow size={14} strokeWidth={1.8} aria-hidden="true" />
+            Chromium
+          </label>
+        </div>
       </fieldset>
       {view?.externalChannel !== undefined ? (
-        <p>
+        <p className="browser-choice__note">
           Для входа в ТУСУР действует внешняя настройка браузера:
           {view.externalChannel === ''
             ? ' Chromium для входа.'
@@ -124,26 +129,34 @@ export function BrowserChoice({ bannerOwnsInstall }: BrowserChoiceProps) {
         </p>
       ) : null}
       {needsInstall ? (
-        <button
-          type="button"
-          disabled={installing}
-          onClick={() => void install()}
-        >
-          {view?.install.status === 'error'
-            ? 'Повторить установку'
-            : 'Установить Chromium'}
-        </button>
+        <div className="form-actions">
+          <button
+            type="button"
+            className="btn btn--amber"
+            disabled={installing}
+            onClick={() => void install()}
+          >
+            <Download size={15} strokeWidth={1.8} aria-hidden="true" />
+            {view?.install.status === 'error'
+              ? 'Повторить установку'
+              : 'Установить Chromium'}
+          </button>
+        </div>
       ) : null}
       {needsInstall && import.meta.env.DEV ? (
-        <p>
+        <p className="fineprint">
           Для разработки: <code>npx playwright install chromium</code>
         </p>
       ) : null}
       {installing && needsInstall ? (
-        <p role="status">Установка Chromium…</p>
+        <p role="status" className="browser-choice__note">
+          Установка Chromium…
+        </p>
       ) : null}
       {error || installError ? (
-        <p role="alert">{error ?? installError}</p>
+        <p role="alert" className="alert alert--error">
+          {error ?? installError}
+        </p>
       ) : null}
     </section>
   );

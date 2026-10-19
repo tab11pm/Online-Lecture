@@ -260,7 +260,7 @@ export class CoreHost {
           }
           return;
         case 'onboarding.getState':
-          this.postChanged(this.machine.getState());
+          this.postStateResult(this.machine.getState());
           return;
         case 'onboarding.login':
           await this.postOutcome(
@@ -275,7 +275,7 @@ export class CoreHost {
           );
           return;
         case 'onboarding.checkSession':
-          this.postChanged(await this.machine.checkSession());
+          this.postStateResult(await this.machine.checkSession());
           return;
         default:
           return;
@@ -386,6 +386,10 @@ export class CoreHost {
 
   private postChanged(state: OnboardingState): void {
     this.transport.post({ type: 'onboarding.changed', state });
+  }
+
+  private postStateResult(state: OnboardingState): void {
+    this.transport.post({ type: 'onboarding.stateResult', state });
   }
 
   private async postOutcome(state: OnboardingState): Promise<void> {

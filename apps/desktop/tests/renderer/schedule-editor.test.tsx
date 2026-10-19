@@ -7,7 +7,7 @@ import {
   screen,
   waitFor,
 } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AgendaItem } from '../../src/shared/lectures.js';
 
 const api = vi.hoisted(() => ({
@@ -20,6 +20,10 @@ vi.mock('../../src/renderer/src/api', () => ({ desktop: { lectures: api } }));
 import { ScheduleEditor } from '../../src/renderer/src/components/ScheduleEditor';
 
 afterEach(cleanup);
+beforeEach(() => {
+  api.editImportedTime.mockClear();
+  api.reschedule.mockClear();
+});
 const item: AgendaItem = {
   jobId: 'tt:1',
   occurrenceId: 'tt:1:date',
@@ -56,13 +60,23 @@ describe('ScheduleEditor', () => {
       screen.getByRole('button', { name: 'Перенести на другую дату' }),
     );
     fireEvent.change(screen.getByLabelText('Новая дата'), {
-      target: { value: '2026-10-21' },
+      target: { value: '21.10.2026' },
     });
     fireEvent.change(screen.getByLabelText('Выход'), {
       target: { value: '11:00' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить перенос' }));
-    expect(screen.getByRole('alert')).toHaveTextContent('позже');
+    expect(
+      screen.getByText('Время выхода должно быть позже времени входа.'),
+    ).toBeVisible();
+    expect(screen.getByLabelText('Выход')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    expect(screen.getByLabelText('Выход')).toHaveAttribute(
+      'aria-describedby',
+      'edit-leave-error',
+    );
     expect(api.reschedule).not.toHaveBeenCalled();
   });
 
@@ -72,7 +86,7 @@ describe('ScheduleEditor', () => {
       screen.getByRole('button', { name: 'Перенести на другую дату' }),
     );
     fireEvent.change(screen.getByLabelText('Новая дата'), {
-      target: { value: '2026-10-21' },
+      target: { value: '21.10.2026' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Сохранить перенос' }));
     await waitFor(() =>
@@ -85,5 +99,19 @@ describe('ScheduleEditor', () => {
         newLeaveAt: '13:00',
       }),
     );
+  });
+
+  it('shows the original date in Russian format and rejects an impossible move date', () => {
+    render(<ScheduleEditor item={item} initialMode="move" onClose={vi.fn()} />);
+    expect(screen.getByText(/Исходная пара: 20\.10\.2026/)).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Новая дата'), {
+      target: { value: '31.02.2026' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Сохранить перенос' }));
+    expect(screen.getByLabelText('Новая дата')).toHaveAttribute(
+      'aria-invalid',
+      'true',
+    );
+    expect(api.reschedule).not.toHaveBeenCalled();
   });
 });

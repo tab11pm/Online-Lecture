@@ -7,6 +7,8 @@ import type { HostEvent, MainCommand } from '../shared/host-protocol.js';
 import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { LecturesView } from '../shared/lectures.js';
 import type { BrowserChoice } from '../shared/browser-choice.js';
+import type { RuntimeMode } from '../shared/runtime-mode.js';
+import { encodeWorkerStartup } from '../shared/worker-startup.js';
 import type {
   EditImportedTimeInput,
   ManualScheduleInput,
@@ -57,6 +59,7 @@ export interface CoreProcessOptions {
   initialBrowserChoice?: BrowserChoice;
   initialShowLectureWindow: boolean;
   externalChannel?: string;
+  runtimeMode?: RuntimeMode;
   fork(entryPath: string, args: string[]): CoreChild;
 }
 
@@ -71,6 +74,11 @@ type LectureCommand =
       ? Omit<Command, 'requestId'>
       : never
     : never;
+
+type StateCommand = Extract<
+  MainCommand,
+  { type: 'onboarding.getState' | 'onboarding.checkSession' }
+>;
 
 const EMPTY_LECTURES_VIEW: LecturesView = {
   agenda: [],
@@ -90,6 +98,10 @@ export class CoreProcess {
   private lecturesView: LecturesView = EMPTY_LECTURES_VIEW;
   private shutdownWaiter: (() => void) | undefined;
   private stateRequest: Promise<OnboardingState> | undefined;
+  private readonly stateRequests = new Map<
+    StateCommand['type'],
+    Promise<OnboardingState>
+  >();
   private loginRequest: Promise<LoginOutcome> | undefined;
 
   constructor(
@@ -121,11 +133,16 @@ export class CoreProcess {
       type: 'lectures.setShowWindow',
       show: this.options.initialShowLectureWindow,
     });
-    const child = this.options.fork(this.options.entryPath, [
-      this.options.userDataDir,
-      this.options.externalChannel === undefined ? '0' : '1',
-      this.options.externalChannel ?? '',
-    ]);
+    const child = this.options.fork(
+      this.options.entryPath,
+      encodeWorkerStartup({
+        userDataDir: this.options.userDataDir,
+        ...(this.options.externalChannel === undefined
+          ? {}
+          : { externalChannel: this.options.externalChannel }),
+        runtimeMode: this.options.runtimeMode ?? 'development',
+      }),
+    );
     this.child = child;
     child.on('message', (message) => {
       this.handleEvent(message as HostEvent);
@@ -342,14 +359,33 @@ export class CoreProcess {
     }
   }
 
-  private requestState(command: MainCommand): Promise<OnboardingState> {
-    // Coalesce overlapping state reads (React StrictMode double-invokes the
-    // mount effect, and users double-click buttons). Returning the in-flight
-    // promise is correct for these idempotent reads and avoids noisy
-    // "request already in flight" rejections in the IPC layer.
-    if (this.stateRequest) {
-      return this.stateRequest;
-    }
+  private requestState(command: StateCommand): Promise<OnboardingState> {
+    const sameCommand = this.stateRequests.get(command.type);
+    if (sameCommand) return sameCommand;
+
+    // State results carry no request ID, so two different onboarding
+    // operations must not overlap: the earlier operation's event could
+    // otherwise settle the later operation. Keep each operation's meaning
+    // while serializing them behind the current request.
+    const previous = this.stateRequest;
+    const promise = previous
+      ? previous.then(() => this.sendStateRequest(command))
+      : this.sendStateRequest(command);
+    this.stateRequest = promise;
+    this.stateRequests.set(command.type, promise);
+    const clearRequest = (): void => {
+      if (this.stateRequests.get(command.type) === promise) {
+        this.stateRequests.delete(command.type);
+      }
+      if (this.stateRequest === promise) {
+        this.stateRequest = undefined;
+      }
+    };
+    void promise.then(clearRequest, clearRequest);
+    return promise;
+  }
+
+  private sendStateRequest(command: StateCommand): Promise<OnboardingState> {
     let resolve!: (value: OnboardingState) => void;
     let reject!: (error: Error) => void;
     const promise = new Promise<OnboardingState>((res, rej) => {
@@ -363,14 +399,10 @@ export class CoreProcess {
         if (this.pendingState === pending) {
           this.pendingState = undefined;
         }
-        if (this.stateRequest === promise) {
-          this.stateRequest = undefined;
-        }
       },
       REQUEST_TIMEOUT_MS,
     );
     this.pendingState = pending;
-    this.stateRequest = promise;
     this.post(command);
     return promise;
   }
@@ -475,7 +507,12 @@ export class CoreProcess {
       case 'onboarding.changed':
         this.lastState = event.state;
         this.callbacks.onChanged(event.state);
-        this.pendingState?.resolve(event.state);
+        return;
+      case 'onboarding.stateResult':
+        if (this.pendingState) {
+          this.lastState = event.state;
+          this.pendingState.resolve(event.state);
+        }
         return;
       case 'lectures.changed':
         this.lecturesView = event.view;

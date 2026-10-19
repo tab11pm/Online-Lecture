@@ -1,0 +1,170 @@
+/* Compact sign-in layout, scoped so the main workspace keeps its own rhythm. */
+.onboarding {
+  grid-template-columns: minmax(0, 1.08fr) minmax(390px, 0.92fr);
+  gap: clamp(24px, 4vw, 54px);
+  align-items: center;
+  min-height: calc(100vh - 92px);
+  padding: 16px 0 24px;
+}
+
+.onboarding__copy {
+  max-width: 450px;
+}
+
+.onboarding .display {
+  max-width: 14ch;
+  margin: 10px 0 12px;
+  font-size: clamp(34px, 3.5vw, 46px);
+  line-height: 1.02;
+}
+
+.onboarding__lead {
+  max-width: 42ch;
+  font-size: 13.5px;
+  line-height: 1.55;
+}
+
+.onboarding .schedule-art {
+  margin-top: 20px;
+}
+
+.onboarding .schedule-art__row {
+  gap: 12px;
+  padding: 8px 0;
+}
+
+.onboarding .schedule-art__name {
+  font-size: 14px;
+}
+
+.onboarding .schedule-art__tag {
+  color: var(--muted);
+  letter-spacing: 0.08em;
+}
+
+.onboarding__panel {
+  max-width: 460px;
+  padding: clamp(22px, 2.6vw, 30px);
+}
+
+.onboarding .panel__title {
+  margin: 8px 0;
+  font-size: clamp(30px, 3vw, 36px);
+}
+
+.onboarding .panel__eyebrow {
+  font-size: 11px;
+}
+
+.onboarding .panel__lede {
+  margin-bottom: 16px;
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.onboarding .form {
+  gap: 11px;
+}
+
+.onboarding .field {
+  gap: 5px;
+}
+
+.onboarding .input {
+  height: 42px;
+}
+
+.onboarding .form-actions {
+  margin-top: 1px;
+}
+
+.onboarding .fineprint {
+  margin-top: 10px;
+}
+
+.onboarding .browser-choice {
+  margin-top: 18px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.onboarding .browser-choice legend {
+  margin-bottom: 8px;
+}
+
+.onboarding .radio-row {
+  gap: 7px;
+}
+
+.onboarding .radio-card {
+  min-height: 38px;
+  padding: 7px 10px;
+}
+
+.onboarding .manual-sso__status {
+  margin: 0 0 12px;
+  color: var(--amber);
+}
+
+.onboarding [role='alert'] {
+  margin-top: 10px;
+}
+
+@media (max-width: 1040px) {
+  .onboarding {
+    grid-template-columns: minmax(0, 1fr) minmax(390px, 0.96fr);
+    gap: 28px;
+    min-height: calc(100vh - 92px);
+    padding: 12px 0 20px;
+  }
+
+  .onboarding__panel {
+    max-width: 460px;
+    justify-self: end;
+  }
+}
+
+@media (max-width: 800px) {
+  .onboarding {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 18px;
+    min-height: 0;
+    padding: 16px 0 24px;
+  }
+
+  .onboarding__panel {
+    order: 1;
+    justify-self: stretch;
+    max-width: 560px;
+    padding: clamp(20px, 4vw, 28px);
+  }
+
+  .onboarding__copy {
+    order: 2;
+    max-width: 560px;
+  }
+
+  .onboarding .display {
+    max-width: 18ch;
+    margin: 0 0 8px;
+    font-size: clamp(27px, 6vw, 36px);
+  }
+
+  .onboarding__lead {
+    font-size: 12.5px;
+  }
+
+  .onboarding .schedule-art {
+    display: none;
+  }
+}
+
+@media (max-width: 480px) {
+  .onboarding__panel {
+    padding: 18px;
+  }
+
+  .onboarding .panel__title {
+    font-size: 30px;
+  }
+}

@@ -59,6 +59,7 @@ const fake = vi.hoisted(() => {
 });
 
 import { App } from '../../src/renderer/src/App';
+import { JournalScreen } from '../../src/renderer/src/components/JournalScreen';
 
 beforeEach(() => {
   fake.list.mockReset();
@@ -214,5 +215,93 @@ describe('journal screen', () => {
     await waitFor(() =>
       expect(screen.getByRole('status')).toHaveTextContent('Записей пока нет'),
     );
+  });
+
+  it('retries a failed next page without losing the loaded records', async () => {
+    const first = {
+      id: 'first',
+      at: '2026-10-19T12:00:00Z',
+      title: 'Первая запись',
+      status: 'completed' as const,
+      isError: false,
+    };
+    fake.list
+      .mockResolvedValueOnce({ items: [first], nextCursor: 'page-2' })
+      .mockRejectedValueOnce(new Error('Не загружено'))
+      .mockResolvedValueOnce({
+        items: [{ ...first, id: 'second', title: 'Вторая запись' }],
+      });
+    render(<JournalScreen onBack={vi.fn()} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Показать ещё' }),
+    );
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Не удалось загрузить ещё записи',
+    );
+    expect(screen.getByText('Первая запись')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Повторить' }));
+    expect(await screen.findByText('Вторая запись')).toBeVisible();
+    expect(screen.getByText('Первая запись')).toBeVisible();
+    expect(fake.list.mock.calls).toEqual([
+      ['all'],
+      ['all', 'page-2'],
+      ['all', 'page-2'],
+    ]);
+    expect(screen.getByText('Загружено 2 записи')).toBeVisible();
+  });
+
+  it('allows pagination in a new filter while an old page is still pending', async () => {
+    let finishOld!: (page: JournalPage) => void;
+    const item = {
+      id: 'one',
+      at: '2026-10-19T12:00:00Z',
+      title: 'Старая запись',
+      status: 'completed' as const,
+      isError: false,
+    };
+    fake.list.mockImplementation(async (filter, cursor) => {
+      if (filter === 'all' && cursor)
+        return new Promise((resolve) => {
+          finishOld = resolve;
+        });
+      if (filter === 'all') return { items: [item], nextCursor: 'old-page' };
+      return {
+        items: [
+          {
+            ...item,
+            id: 'error',
+            title: 'Новая ошибка',
+            status: 'failed',
+            isError: true,
+          },
+        ],
+        nextCursor: 'errors-page',
+      };
+    });
+    render(<JournalScreen onBack={vi.fn()} />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Показать ещё' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Ошибки' }));
+    expect(await screen.findByText('Новая ошибка')).toBeVisible();
+    expect(screen.getByRole('button', { name: 'Показать ещё' })).toBeEnabled();
+    await act(async () =>
+      finishOld({
+        items: [{ ...item, id: 'stale', title: 'Устаревший ответ' }],
+      }),
+    );
+    expect(screen.queryByText('Устаревший ответ')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Показать ещё' })).toBeEnabled();
+  });
+
+  it('distinguishes an empty error filter from an empty history', async () => {
+    render(<JournalScreen onBack={vi.fn()} />);
+    expect(await screen.findByText('Записей пока нет.')).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Ошибки' }));
+    expect(await screen.findByText('Ошибок не найдено')).toBeVisible();
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Показать все записи' }),
+    );
+    expect(await screen.findByText('Записей пока нет.')).toBeVisible();
   });
 });
