@@ -330,7 +330,7 @@ describe('CoreHost', () => {
     });
   });
 
-  it('posts the current state for onboarding.getState', () => {
+  it('returns onboarding.getState through one stateResult event', () => {
     const { transport, posted, send } = fakeTransport();
     const host = new CoreHost(transport, { paths, machine: machine() });
     host.start();
@@ -338,10 +338,37 @@ describe('CoreHost', () => {
 
     send({ type: 'onboarding.getState' });
 
-    expect(posted).toContainEqual({
+    expect(posted).toEqual([
+      {
+        type: 'onboarding.stateResult',
+        state: { phase: 'welcome' },
+      },
+    ]);
+  });
+
+  it('keeps checkSession state pushes separate from its single stateResult', async () => {
+    const { transport, posted, send } = fakeTransport();
+    const host = new CoreHost(transport, { paths, machine: machine() });
+    host.start();
+    posted.length = 0;
+
+    send({ type: 'onboarding.checkSession' });
+    await flush();
+
+    expect(
+      posted.filter((event) => event.type === 'onboarding.changed'),
+    ).toContainEqual({
       type: 'onboarding.changed',
-      state: { phase: 'welcome' },
+      state: { phase: 'session_ready' },
     });
+    expect(
+      posted.filter((event) => event.type === 'onboarding.stateResult'),
+    ).toEqual([
+      {
+        type: 'onboarding.stateResult',
+        state: { phase: 'session_ready' },
+      },
+    ]);
   });
 
   it('drives the machine and posts a login result on onboarding.login', async () => {

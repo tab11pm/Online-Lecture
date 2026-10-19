@@ -1,46 +1,16 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { DateTime } from 'luxon';
-import { _electron as electron, type ElectronApplication } from 'playwright';
 import { expect, it } from 'vitest';
-
-const repoRoot = fileURLToPath(new URL('../../../../', import.meta.url));
-const mainEntry = join(repoRoot, 'apps', 'desktop', 'out', 'main', 'index.js');
+import { launchIsolatedElectron } from './support/electron-app.js';
 
 // Opt-in only: plain `npm test` must stay green in headless CI without Electron.
 const e2e = process.env.CI_ELECTRON_E2E === '1' ? it : it.skip;
 
 e2e(
   'attends the demo lecture and records a manual stop',
-  async ({ skip }) => {
-    if (!existsSync(mainEntry)) {
-      skip(
-        `Electron entry not found at ${mainEntry}; run "npm run build -w @online-lecture/desktop".`,
-      );
-      return;
-    }
-
-    const dataDir = mkdtempSync(join(tmpdir(), 'online-lecture-e2e-'));
-    let app: ElectronApplication | undefined;
+  async () => {
+    const isolated = await launchIsolatedElectron();
     try {
-      try {
-        app = await electron.launch({
-          args: [mainEntry, `--user-data-dir=${dataDir}`],
-          env: {
-            ...process.env,
-            ONLINE_LECTURE_FAKE_SESSION: '1',
-            ONLINE_LECTURE_FAKE_SESSION_EXPIRED: '1',
-            LOCALAPPDATA: dataDir,
-          },
-        });
-      } catch (error) {
-        skip(`Electron could not launch here: ${describeError(error)}`);
-        return;
-      }
-
-      const page = await app.firstWindow();
+      const page = await isolated.app.firstWindow();
 
       await page
         .getByRole('heading', { name: 'Online Lecture' })
@@ -78,11 +48,10 @@ e2e(
       await page.getByRole('button', { name: 'Ошибки' }).click();
       await page
         .getByRole('status')
-        .filter({ hasText: 'Записей пока нет' })
+        .filter({ hasText: 'Ошибок не найдено' })
         .waitFor();
     } finally {
-      await app?.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      await isolated.close();
     }
   },
   240_000,
@@ -90,30 +59,12 @@ e2e(
 
 e2e(
   'shows a failed fake lecture in the journal',
-  async ({ skip }) => {
-    if (!existsSync(mainEntry)) {
-      skip('Build the desktop application before the E2E run.');
-      return;
-    }
-    const dataDir = mkdtempSync(join(tmpdir(), 'online-lecture-failed-e2e-'));
-    let app: ElectronApplication | undefined;
+  async () => {
+    const isolated = await launchIsolatedElectron({
+      ONLINE_LECTURE_FAKE_RUN_FAILURE: '1',
+    });
     try {
-      try {
-        app = await electron.launch({
-          args: [mainEntry, `--user-data-dir=${dataDir}`],
-          env: {
-            ...process.env,
-            ONLINE_LECTURE_FAKE_SESSION: '1',
-            ONLINE_LECTURE_FAKE_SESSION_EXPIRED: '1',
-            ONLINE_LECTURE_FAKE_RUN_FAILURE: '1',
-            LOCALAPPDATA: dataDir,
-          },
-        });
-      } catch (error) {
-        skip(`Electron could not launch here: ${describeError(error)}`);
-        return;
-      }
-      const page = await app.firstWindow();
+      const page = await isolated.app.firstWindow();
       await page.getByRole('button', { name: 'Начать' }).click();
       await page.getByLabel('Логин').fill('student');
       await page.getByLabel('Пароль').fill('fake-password');
@@ -129,8 +80,7 @@ e2e(
         .getByText('Ошибка')
         .waitFor();
     } finally {
-      await app?.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      await isolated.close();
     }
   },
   240_000,
@@ -138,36 +88,18 @@ e2e(
 
 e2e(
   'adds a manual pair and cancels an imported move in the fake session',
-  async ({ skip }) => {
-    if (!existsSync(mainEntry)) {
-      skip('Build the desktop application before the E2E run.');
-      return;
-    }
-    const dataDir = mkdtempSync(join(tmpdir(), 'online-lecture-edit-e2e-'));
-    let app: ElectronApplication | undefined;
+  async () => {
+    const isolated = await launchIsolatedElectron({
+      ONLINE_LECTURE_FAKE_EDIT_SCENARIO: '1',
+    });
     try {
-      try {
-        app = await electron.launch({
-          args: [mainEntry, `--user-data-dir=${dataDir}`],
-          env: {
-            ...process.env,
-            ONLINE_LECTURE_FAKE_SESSION: '1',
-            ONLINE_LECTURE_FAKE_SESSION_EXPIRED: '1',
-            ONLINE_LECTURE_FAKE_EDIT_SCENARIO: '1',
-            LOCALAPPDATA: dataDir,
-          },
-        });
-      } catch (error) {
-        skip(`Electron could not launch here: ${describeError(error)}`);
-        return;
-      }
-      const page = await app.firstWindow();
+      const page = await isolated.app.firstWindow();
       await page.getByRole('button', { name: 'Начать' }).click();
       await page.getByLabel('Логин').fill('student');
       await page.getByLabel('Пароль').fill('fake-password');
       await page.getByRole('button', { name: 'Войти' }).click();
       await page
-        .getByText('Будущая импортированная пара')
+        .getByText('Будущая импортированная пара', { exact: true })
         .waitFor({ state: 'visible', timeout: 90_000 });
 
       const tomorrow = DateTime.now()
@@ -178,10 +110,12 @@ e2e(
       await page.getByLabel('Курс СДО или ссылка на курс').fill('Демо');
       await page.getByRole('button', { name: 'Найти активность' }).click();
       await page
-        .getByRole('radio', { name: /Демонстрационная лекция/ })
+        .getByRole('button', { name: /Демонстрационная лекция/ })
         .click();
       await page.getByLabel('Название пары').fill('Моя ручная пара');
-      await page.getByLabel('Дата', { exact: true }).fill(tomorrow);
+      await page
+        .getByLabel('Дата', { exact: true })
+        .fill(DateTime.fromISO(tomorrow).toFormat('dd.MM.yyyy'));
       await page.getByLabel('Вход').fill('12:00');
       await page.getByLabel('Выход').fill('13:00');
       await page.getByRole('button', { name: 'Сохранить пару' }).click();
@@ -189,43 +123,83 @@ e2e(
 
       const source = page
         .getByRole('listitem')
-        .filter({ hasText: 'Будущая импортированная пара' });
+        .filter({ hasText: 'Будущая импортированная пара' })
+        .filter({ hasText: 'из расписания' });
       await source
-        .getByRole('button', { name: 'Изменить / перенести' })
+        .getByRole('button', {
+          name: 'Действия для пары: Будущая импортированная пара',
+        })
         .click();
-      await page
-        .getByRole('button', { name: 'Перенести на другую дату' })
-        .click();
+      await page.getByRole('menuitem', { name: 'Перенести' }).click();
       const movedDate = DateTime.now()
         .setZone('Asia/Krasnoyarsk')
         .plus({ days: 3 })
-        .toISODate()!;
+        .toFormat('dd.MM.yyyy');
       await page.getByLabel('Новая дата').fill(movedDate);
       await page.getByRole('button', { name: 'Сохранить перенос' }).click();
-      await source
-        .getByRole('button', { name: 'Вернуть' })
-        .waitFor({ state: 'visible' });
+
+      const sourceActions = source.getByRole('button', {
+        name: 'Действия для пары: Будущая импортированная пара',
+      });
+      await sourceActions.click();
+      await page.getByRole('menuitem', { name: 'Вернуть' }).waitFor();
+      await sourceActions.click();
+
       const replacement = page
         .getByRole('listitem')
-        .filter({ hasText: 'Будущая импортированная пара' })
-        .filter({
-          has: page.getByRole('button', { name: 'Отменить перенос' }),
-        });
+        .filter({ hasText: 'вручную' })
+        .filter({ hasText: 'перенос' });
       await replacement
-        .getByRole('button', { name: 'Отменить перенос' })
+        .getByText('Демонстрационная лекция', { exact: true })
+        .waitFor();
+      await replacement
+        .getByRole('button', {
+          name: 'Действия для пары: Демонстрационная лекция',
+        })
         .click();
+      await page.getByRole('menuitem', { name: 'Отменить перенос' }).click();
+
+      const restoredSource = page
+        .getByRole('listitem')
+        .filter({ hasText: 'Будущая импортированная пара' })
+        .filter({ hasText: 'из расписания' });
+      await replacement.waitFor({ state: 'detached' });
       await source
-        .getByRole('button', { name: 'Пропустить' })
+        .getByRole('button', {
+          name: 'Действия для пары: Будущая импортированная пара',
+        })
         .waitFor({ state: 'visible' });
+      expect(await restoredSource.count()).toBe(1);
+      expect(await replacement.count()).toBe(0);
+      await restoredSource
+        .getByRole('button', {
+          name: 'Действия для пары: Будущая импортированная пара',
+        })
+        .click();
+      await page.getByRole('menuitem', { name: 'Пропустить' }).waitFor();
+      await page
+        .getByRole('button', {
+          name: 'Действия для пары: Будущая импортированная пара',
+        })
+        .click();
+
       expect(await page.getByText('Моя ручная пара').isVisible()).toBe(true);
+
+      const manualPair = page
+        .getByRole('listitem')
+        .filter({ hasText: 'Моя ручная пара' })
+        .filter({ hasText: 'вручную' });
+      await manualPair
+        .getByRole('button', { name: 'Действия для пары: Моя ручная пара' })
+        .click();
+      await page.getByRole('menuitem', { name: 'Удалить' }).click();
+      await page.getByRole('dialog', { name: 'Удалить пару?' }).waitFor();
+      await page.getByRole('button', { name: 'Удалить пару' }).click();
+      await manualPair.waitFor({ state: 'detached' });
+      expect(await manualPair.count()).toBe(0);
     } finally {
-      await app?.close();
-      rmSync(dataDir, { recursive: true, force: true });
+      await isolated.close();
     }
   },
   240_000,
 );
-
-function describeError(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

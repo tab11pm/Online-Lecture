@@ -6,6 +6,7 @@ import { CoreHost, type HostTransport } from './core-host.js';
 import { createCoreLog } from './core-log.js';
 import { createLectureAdapters } from './lecture-adapters.js';
 import { createFakeLectureAdapters } from './lecture-adapters.fake.js';
+import { createFakeClock } from './fake-clock.js';
 import { LectureService, type LectureAdapters } from './lecture-service.js';
 import { SdoMcpSessionProvider } from './sdo-mcp-session-provider.js';
 import { FakeSessionProvider } from './session-provider.fake.js';
@@ -52,6 +53,7 @@ const paths = createAppPaths(userDataDir);
 const log = createCoreLog(join(paths.logs, 'core.log'));
 
 const fakeSession = process.env.ONLINE_LECTURE_FAKE_SESSION === '1';
+const now = fakeSession ? createFakeClock() : () => new Date();
 
 function createProvider(): SdoMcpSessionProvider | FakeSessionProvider {
   if (fakeSession) {
@@ -75,7 +77,7 @@ function createAdapters(): LectureAdapters {
       createMcpClient: () => provider.createClient(paths.authState),
     });
   }
-  return createFakeLectureAdapters(() => new Date());
+  return createFakeLectureAdapters(now);
 }
 
 const adapters = createAdapters();
@@ -89,7 +91,7 @@ new CoreHost(transport, {
       databasePath: paths.database,
       sqliteBinding: process.env.ONLINE_LECTURE_SQLITE_BINDING,
       adapters,
-      now: () => new Date(),
+      now,
       onView: events.onView,
       onAuthRequired: events.onAuthRequired,
       onJournalEvent: events.onJournalEvent,
