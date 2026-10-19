@@ -294,6 +294,7 @@ describe('lecture session controller', () => {
     expect(await f.run()).toMatchObject({
       status: 'failed',
       completionReason: 'error',
+      failureCode: 'retries_exhausted',
     });
     expect(f.dependencies.sleep).toHaveBeenNthCalledWith(
       1,
@@ -337,6 +338,7 @@ describe('lecture session controller', () => {
       status: 'completed',
       completionReason: 'deadline',
     });
+    expect(f.persistedRuns.at(-1)?.failureCode).toBeUndefined();
     expect(f.dependencies.sleep).not.toHaveBeenCalled();
     expect(f.port.reconnect).not.toHaveBeenCalled();
   });

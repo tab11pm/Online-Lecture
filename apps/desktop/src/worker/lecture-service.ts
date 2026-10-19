@@ -14,6 +14,7 @@ import { redactSensitiveText } from '@core/core/redaction.js';
 import { Scheduler } from '@core/core/scheduler.js';
 import type { Job, OnlineLectureResolution, Run } from '@core/core/types.js';
 import { SqliteJobRepository } from '@core/persistence/job-repository.js';
+import { DesktopEventRepository } from '@core/persistence/desktop-event-repository.js';
 import { SqliteMetaRepository } from '@core/persistence/meta-repository.js';
 import { SqliteRunRepository } from '@core/persistence/run-repository.js';
 import { SqliteStore } from '@core/persistence/sqlite-store.js';
@@ -28,6 +29,8 @@ import type {
   LecturesView,
 } from '../shared/lectures.js';
 import type { CoreLog } from './core-log.js';
+import type { JournalFilter, JournalPage } from '../shared/journal.js';
+import { JournalService, type NewJournalEvent } from './journal-service.js';
 import { ImportScheduler } from './import-scheduler.js';
 import { ManualTargetStore, parseManualQuery } from './manual-targets.js';
 import type { ManualTargetLookup } from '../shared/lectures.js';
@@ -63,6 +66,7 @@ export interface LectureServiceDependencies {
   now(): Date;
   onView(view: LecturesView): void;
   onAuthRequired(): void;
+  onJournalEvent?(event: NewJournalEvent): void;
   log?: CoreLog;
 }
 
@@ -76,12 +80,14 @@ class NotifyingRunRepository extends SqliteRunRepository {
   constructor(
     store: SqliteStore,
     private readonly onWrite: () => void,
+    private readonly onTerminal: (run: Run) => Promise<void>,
   ) {
     super(store);
   }
 
   override async update(run: Run): Promise<void> {
     await super.update(run);
+    await this.onTerminal(run);
     this.onWrite();
   }
 
@@ -100,6 +106,7 @@ interface Repositories {
   store: SqliteStore;
   jobs: SqliteJobRepository;
   runs: SqliteRunRepository;
+  journal: JournalService;
   imports: ImportScheduler;
   runner: SingleLectureRunner;
   loop: SchedulerLoop;
@@ -129,9 +136,33 @@ export class LectureService {
     );
     await store.openWithRecovery();
     const jobs = new SqliteJobRepository(store);
-    const runs = new NotifyingRunRepository(store, () => void this.publish());
+    const journal = new JournalService(
+      new DesktopEventRepository(store),
+      (event) => this.deps.onJournalEvent?.(event),
+      this.deps.now,
+    );
+    const runs = new NotifyingRunRepository(
+      store,
+      () => void this.publish(),
+      async (run) => {
+        if (!['completed', 'blocked', 'failed'].includes(run.status)) return;
+        const job = await jobs.getById(run.jobId);
+        const title =
+          job?.title ??
+          job?.origin?.discipline ??
+          (this.launched?.occurrenceId === run.occurrenceId
+            ? this.launched.title
+            : 'Лекция');
+        try {
+          await journal.recordTerminalRun(run, title, true);
+        } catch (error) {
+          this.logError('journal', error);
+        }
+      },
+    );
     const meta = new SqliteMetaRepository(store);
     await runs.failInterrupted(this.deps.now().toISOString());
+    await journal.recover();
     const imports = new ImportScheduler({
       runImport: async (onProgress) => {
         let result: TimetableImportResult;
@@ -208,7 +239,7 @@ export class LectureService {
       now: () => this.deps.now(),
       onError: (error) => this.logError('scheduler', error),
     });
-    this.repos = { store, jobs, runs, imports, runner, loop };
+    this.repos = { store, jobs, runs, journal, imports, runner, loop };
     await this.publish();
   }
 
@@ -276,6 +307,13 @@ export class LectureService {
 
   async importNow(): Promise<void> {
     await this.requireRepos().imports.request('manual');
+  }
+
+  async listJournalPage(
+    filter: JournalFilter,
+    cursor?: string,
+  ): Promise<JournalPage> {
+    return this.requireRepos().journal.listPage(filter, cursor);
   }
 
   async resolveManualTarget(query: string): Promise<ManualTargetLookup> {

@@ -58,6 +58,7 @@ function fakeLog() {
 function setup(overrides: Partial<LectureAdapters> = {}, log?: CoreLog) {
   const views: LecturesView[] = [];
   const onAuthRequired = vi.fn();
+  const onJournalEvent = vi.fn();
   const fake = createFakeLectureAdapters(() => clock);
   const adapters: LectureAdapters = { ...fake, ...overrides };
   const service = new LectureService({
@@ -66,11 +67,12 @@ function setup(overrides: Partial<LectureAdapters> = {}, log?: CoreLog) {
     now: () => clock,
     onView: (view) => views.push(view),
     onAuthRequired,
+    onJournalEvent,
     log,
   });
   services.push(service);
   const last = (): LecturesView | undefined => views.at(-1);
-  return { service, views, last, onAuthRequired, fake };
+  return { service, views, last, onAuthRequired, onJournalEvent, fake };
 }
 
 async function withStore<T>(
@@ -249,7 +251,9 @@ describe('LectureService', () => {
     await seed(job);
     const { service } = setup();
     await service.open();
-    const second = service.getView().agenda.find((item) => item.joinAt === '13:00');
+    const second = service
+      .getView()
+      .agenda.find((item) => item.joinAt === '13:00');
     expect(second).toBeDefined();
     await service.deleteLecture(job.id, second!.occurrenceId);
     expect(service.getView().agenda.map((item) => item.skipped)).toEqual([
@@ -412,13 +416,17 @@ describe('LectureService', () => {
       };
       await runs.getOrCreate(run);
     });
-    const { service } = setup();
+    const { service, onJournalEvent } = setup();
     await service.open();
     const stored = await withStore(({ runs }) => runs.listAll());
     expect(stored[0]).toMatchObject({
       status: 'failed',
       completionReason: 'error',
     });
+    expect((await service.listJournalPage('errors')).items).toEqual([
+      expect.objectContaining({ status: 'failed' }),
+    ]);
+    expect(onJournalEvent).not.toHaveBeenCalled();
   });
 
   it('imports after login activation and publishes the agenda', async () => {
@@ -456,7 +464,7 @@ describe('LectureService', () => {
   });
 
   it('stopCurrent ends the run as manual and publishes lastRun', async () => {
-    const { service, last } = setup();
+    const { service, last, onJournalEvent } = setup();
     await service.open();
     service.activate('login');
     await connected(last);
@@ -469,6 +477,18 @@ describe('LectureService', () => {
       }),
     );
     expect(last()?.current).toBeUndefined();
+    expect((await service.listJournalPage('all')).items).toEqual([
+      expect.objectContaining({
+        status: 'completed',
+        title: 'Демонстрационная лекция',
+      }),
+    ]);
+    expect(onJournalEvent).toHaveBeenCalledExactlyOnceWith(
+      expect.objectContaining({
+        code: 'lecture_finished',
+        title: 'Демонстрационная лекция',
+      }),
+    );
   });
 
   it('skipping the running occurrence stops it first', async () => {
