@@ -13,6 +13,8 @@ jobs:
   build:
     runs-on: windows-2022
     timeout-minutes: 40
+    env:
+      PLAYWRIGHT_BROWSERS_PATH: ${{ runner.temp }}\playwright-browsers
 
     steps:
       - name: Check out source
@@ -35,15 +37,6 @@ jobs:
       - name: Build Windows installer
         run: npm run dist:win -w @online-lecture/desktop
 
-      - name: Install Playwright Chromium
-        run: npx playwright install chromium
-
-      - name: Run packaged Electron E2E
-        run: npm test -w @online-lecture/desktop -- tests/e2e --no-file-parallelism
-        env:
-          CI_ELECTRON_E2E: '1'
-          ONLINE_LECTURE_PACKAGED_EXECUTABLE: ${{ github.workspace }}/apps/desktop/dist/win-unpacked/OnlineLecture.exe
-
       - name: Upload Windows preview installer
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -52,3 +45,65 @@ jobs:
             apps/desktop/dist/OnlineLecture-Setup-0.1.0-x64.exe
             apps/desktop/dist/OnlineLecture-Setup-0.1.0-x64.exe.sha256
           if-no-files-found: error
+
+      - name: Smoke-check packaged runtime (SQLite, Playwright, MCP)
+        timeout-minutes: 3
+        run: |
+          $runtimeScript = @'
+          import { mkdtempSync, rmSync } from 'node:fs';
+          import { tmpdir } from 'node:os';
+          import { dirname, join } from 'node:path';
+          import {
+            performMcpHandshake,
+            runChildProcess,
+            smokePackagedRuntime,
+          } from './packaged-runtime-smoke.ts';
+
+          async function main() {
+            const executablePath = process.env.ONLINE_LECTURE_PACKAGED_EXECUTABLE;
+            if (!executablePath) throw new Error('packaged executable is required');
+            const cwd = mkdtempSync(join(tmpdir(), 'online-lecture-runtime-'));
+            console.log('Starting packaged runtime checks');
+            try {
+              await smokePackagedRuntime(
+                { executablePath, packageDir: dirname(executablePath), cwd },
+                {
+                  runChild: async (command, args, options) => {
+                    const label = args[1] === '--version' ? 'Playwright CLI' : 'SQLite';
+                    console.log(`Starting packaged ${label} check`);
+                    await runChildProcess(command, args, options);
+                    console.log(`Packaged ${label} check passed`);
+                  },
+                  handshake: async (input) => {
+                    console.log('Starting packaged MCP handshake');
+                    await performMcpHandshake(input);
+                    console.log('Packaged MCP handshake passed');
+                  },
+                },
+              );
+              console.log('Packaged runtime checks passed');
+            } finally {
+              rmSync(cwd, { recursive: true, force: true });
+            }
+          }
+
+          void main().catch((error) => {
+            console.error(error);
+            process.exitCode = 1;
+          });
+          '@
+          Set-Content -Path apps/desktop/scripts/ci-runtime-smoke.ts -Value $runtimeScript -Encoding utf8NoBOM
+          npx tsx apps/desktop/scripts/ci-runtime-smoke.ts
+        env:
+          ONLINE_LECTURE_PACKAGED_EXECUTABLE: ${{ github.workspace }}/apps/desktop/dist/win-unpacked/OnlineLecture.exe
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium
+
+      - name: Run packaged Electron E2E
+        timeout-minutes: 6
+        run: npm test -w @online-lecture/desktop -- tests/e2e --no-file-parallelism --bail=1 --reporter=verbose
+        env:
+          CI_ELECTRON_E2E: '1'
+          DEBUG: pw:browser
+          ONLINE_LECTURE_PACKAGED_EXECUTABLE: ${{ github.workspace }}/apps/desktop/dist/win-unpacked/OnlineLecture.exe
