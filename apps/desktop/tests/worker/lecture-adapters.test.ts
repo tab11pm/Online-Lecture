@@ -18,6 +18,23 @@ vi.mock('@core/core/browser-launch.js', () => ({
   }),
 }));
 
+// Keep the active-window check deterministic near midnight: the run path under
+// test only needs a valid occurrence id and a leave time in the future.
+vi.mock('@core/core/occurrence.js', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@core/core/occurrence.js')>();
+  return {
+    ...actual,
+    findActiveOccurrence: (job: Job) => ({
+      id: `${job.id}:mock`,
+      jobId: job.id,
+      joinAt: new Date(Date.now() - 60_000).toISOString(),
+      leaveAt: new Date(Date.now() + 3_600_000).toISOString(),
+      timezone: job.schedule.timezone,
+    }),
+  };
+});
+
 let dir: string;
 let store: SqliteStore;
 
@@ -91,7 +108,8 @@ describe('createLectureAdapters', () => {
   it('fails a run without launching when the chosen browser is missing', async () => {
     const jobs = new SqliteJobRepository(store);
     const runs = new SqliteRunRepository(store);
-    const { job, occurrenceId } = directJob();
+    const { job } = directJob();
+    const occurrenceId = `${job.id}:mock`;
     await jobs.save(job);
     const close = vi.fn(async () => undefined);
     const adapters = createLectureAdapters({
