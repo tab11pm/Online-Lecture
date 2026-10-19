@@ -1,12 +1,18 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
-import { KeyRound, LockKeyhole, LogIn, UserRound } from 'lucide-react';
+import {
+  KeyRound,
+  LoaderCircle,
+  LockKeyhole,
+  LogIn,
+  UserRound,
+} from 'lucide-react';
 import type { LoginInput } from '../../../shared/ipc-contract.js';
 
 export interface CredentialsFormProps {
   error?: string;
   disabled?: boolean;
-  onSubmit(input: LoginInput): void;
+  onSubmit(input: LoginInput): void | Promise<void>;
 }
 
 export function CredentialsForm({
@@ -36,7 +42,7 @@ export function CredentialsForm({
         Логин и пароль от личного кабинета. Они не покидают этот компьютер.
       </p>
       {error ? (
-        <p role="alert" className="alert alert--error">
+        <p id="credentials-error" role="alert" className="alert alert--error">
           {error}
         </p>
       ) : null}
@@ -52,9 +58,12 @@ export function CredentialsForm({
             className="input"
             type="text"
             autoComplete="username"
+            spellCheck={false}
             required
             value={username}
             disabled={disabled}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? 'credentials-error' : undefined}
             onChange={(event) => setUsername(event.target.value)}
           />
         </div>
@@ -72,6 +81,8 @@ export function CredentialsForm({
             required
             value={password}
             disabled={disabled}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? 'credentials-error' : undefined}
             onChange={(event) => setPassword(event.target.value)}
           />
         </div>
@@ -81,8 +92,17 @@ export function CredentialsForm({
             className="btn btn--primary"
             disabled={disabled || !canSubmit}
           >
-            <LogIn size={15} strokeWidth={1.8} aria-hidden="true" />
-            Войти
+            {disabled ? (
+              <>
+                <LoaderCircle className="spin" size={15} aria-hidden="true" />
+                Выполняется вход…
+              </>
+            ) : (
+              <>
+                <LogIn size={15} strokeWidth={1.8} aria-hidden="true" />
+                Войти
+              </>
+            )}
           </button>
         </div>
       </form>

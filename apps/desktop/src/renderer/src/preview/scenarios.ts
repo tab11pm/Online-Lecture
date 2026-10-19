@@ -6,6 +6,7 @@ import type {
   ManualTargetCandidate,
 } from '../../../shared/lectures.js';
 import type { OnboardingState } from '../../../shared/onboarding.js';
+import type { RunStatus } from '@core/core/types.js';
 
 export type PreviewAction =
   | { kind: 'click'; text: string; delay?: number }
@@ -17,6 +18,7 @@ export interface PreviewScenario {
   browser: BrowserView;
   journalOpen?: boolean;
   journalEmpty?: boolean;
+  journalMode?: 'loading' | 'error' | 'pagination-error';
   actions?: PreviewAction[];
 }
 
@@ -209,11 +211,25 @@ const wizardActions: PreviewAction[] = [
   {
     kind: 'fill',
     label: 'Дата',
-    value: '2026-10-21',
+    value: '21.10.2026',
   },
   { kind: 'fill', label: 'Вход', value: '12:15' },
   { kind: 'fill', label: 'Выход', value: '13:50' },
 ];
+
+function connectionScenario(status: RunStatus): PreviewScenario {
+  return {
+    state: sessionReady,
+    browser: browserEdge,
+    view: {
+      ...liveView,
+      current: { ...liveView.current!, status },
+      agenda: agenda.map((item) =>
+        item.jobId === 'tt:math' ? { ...item, runStatus: status } : item,
+      ),
+    },
+  };
+}
 
 export const scenarios: Record<string, PreviewScenario> = {
   welcome: {
@@ -311,7 +327,81 @@ export const scenarios: Record<string, PreviewScenario> = {
     browser: browserEdge,
     journalOpen: true,
     journalEmpty: true,
+  },
+  'journal-errors-empty': {
+    state: sessionReady,
+    view: liveView,
+    browser: browserEdge,
+    journalOpen: true,
+    journalEmpty: true,
     actions: [{ kind: 'click', text: 'Ошибки', delay: 450 }],
+  },
+  'journal-loading': {
+    state: sessionReady,
+    view: liveView,
+    browser: browserEdge,
+    journalOpen: true,
+    journalMode: 'loading',
+  },
+  'journal-error': {
+    state: sessionReady,
+    view: liveView,
+    browser: browserEdge,
+    journalOpen: true,
+    journalMode: 'error',
+  },
+  'journal-page-error': {
+    state: sessionReady,
+    view: liveView,
+    browser: browserEdge,
+    journalOpen: true,
+    journalMode: 'pagination-error',
+    actions: [{ kind: 'click', text: 'Показать ещё', delay: 450 }],
+  },
+  'import-done': {
+    state: sessionReady,
+    browser: browserEdge,
+    view: {
+      ...idleView,
+      import: {
+        status: 'done',
+        at: '2026-10-19T10:00:00+07:00',
+        summary: { added: 3, removed: 1, complete: true },
+        unresolved: [],
+      },
+    },
+  },
+  'import-partial': {
+    state: sessionReady,
+    browser: browserEdge,
+    view: {
+      ...idleView,
+      import: {
+        status: 'done',
+        at: '2026-10-19T10:00:00+07:00',
+        summary: { added: 2, removed: 0, complete: false },
+        unresolved: ['Теория вероятностей'],
+      },
+    },
+  },
+  'connection-search': connectionScenario('resolving'),
+  'connection-joining': connectionScenario('joining'),
+  'connection-waiting': connectionScenario('waiting_room'),
+  'connection-retrying': connectionScenario('reconnecting'),
+  'connection-leaving': connectionScenario('leaving'),
+  'connection-blocked': connectionScenario('blocked'),
+  'connection-error': {
+    state: sessionReady,
+    browser: browserEdge,
+    view: {
+      ...idleView,
+      lastRun: {
+        title: 'Физика',
+        status: 'failed',
+        completionReason: 'error',
+        at: '2026-10-19T10:00:00+07:00',
+      },
+    },
   },
   'add-lecture': {
     state: sessionReady,
@@ -329,14 +419,26 @@ export const scenarios: Record<string, PreviewScenario> = {
     state: sessionReady,
     view: liveView,
     browser: browserEdge,
-    actions: [{ kind: 'click', text: 'Изменить / перенести', delay: 450 }],
+    actions: [
+      {
+        kind: 'click',
+        text: 'Действия для пары: Математический анализ',
+        delay: 450,
+      },
+      { kind: 'click', text: 'Изменить время', delay: 160 },
+    ],
   },
   'edit-move': {
     state: sessionReady,
     view: liveView,
     browser: browserEdge,
     actions: [
-      { kind: 'click', text: 'Изменить / перенести', delay: 450 },
+      {
+        kind: 'click',
+        text: 'Действия для пары: Математический анализ',
+        delay: 450,
+      },
+      { kind: 'click', text: 'Перенести', delay: 160 },
       { kind: 'click', text: 'Перенести на другую дату', delay: 200 },
     ],
   },
@@ -359,10 +461,23 @@ export const screens: Array<[id: string, label: string]> = [
   ['schedule-empty', 'Пусто'],
   ['import-running', 'Импорт'],
   ['import-error', 'Ошибка импорта'],
+  ['import-done', 'Импорт · готово'],
+  ['import-partial', 'Импорт · частично'],
+  ['connection-search', 'Поиск лекции'],
+  ['connection-joining', 'Подключение'],
+  ['connection-waiting', 'Ожидание'],
+  ['connection-retrying', 'Переподключение'],
+  ['connection-leaving', 'Выход'],
+  ['connection-blocked', 'Блокировка'],
+  ['connection-error', 'Ошибка лекции'],
   ['chromium', 'Chromium'],
   ['journal', 'Журнал'],
   ['journal-errors', 'Журнал · ошибки'],
   ['journal-empty', 'Журнал · пусто'],
+  ['journal-errors-empty', 'Журнал · нет ошибок'],
+  ['journal-loading', 'Журнал · загрузка'],
+  ['journal-error', 'Журнал · сбой'],
+  ['journal-page-error', 'Журнал · ещё записи'],
   ['add-lecture', 'Новая пара'],
   ['add-lecture-search', 'Поиск пары'],
   ['edit-time', 'Изменить время'],

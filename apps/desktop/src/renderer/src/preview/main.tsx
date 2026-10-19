@@ -45,7 +45,9 @@ function findClickable(text: string): HTMLElement | undefined {
   ];
   return (
     nodes.find((node) => node.textContent?.trim() === text) ??
-    nodes.find((node) => node.textContent?.includes(text))
+    nodes.find((node) => node.textContent?.includes(text)) ??
+    nodes.find((node) => node.getAttribute('aria-label') === text) ??
+    nodes.find((node) => node.getAttribute('aria-label')?.includes(text))
   );
 }
 

@@ -301,6 +301,55 @@ describe('onboarding UI', () => {
     expect(consoleOutput()).not.toContain(PASSWORD);
   });
 
+  it('prevents duplicate login commands while the first request is pending', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    fake.login.mockImplementationOnce(() => new Promise(() => {}));
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('Логин'), {
+      target: { value: 'student' },
+    });
+    fireEvent.change(screen.getByLabelText('Пароль'), {
+      target: { value: PASSWORD },
+    });
+    const submit = screen.getByRole('button', { name: 'Войти' });
+    fireEvent.click(submit);
+    fireEvent.submit(submit.closest('form') as HTMLFormElement);
+
+    expect(fake.login).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole('button', { name: 'Выполняется вход…' }),
+    ).toBeDisabled();
+  });
+
+  it('associates credential errors and preserves username spelling settings', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    render(<App />);
+
+    const username = await screen.findByLabelText('Логин');
+    expect(username).toHaveAttribute('spellcheck', 'false');
+
+    fireEvent.change(username, { target: { value: 'student' } });
+    fireEvent.change(screen.getByLabelText('Пароль'), {
+      target: { value: PASSWORD },
+    });
+    fake.login.mockRejectedValueOnce(new Error('Проверьте данные входа.'));
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+
+    const error = await screen.findByRole('alert');
+    expect(screen.getByLabelText('Логин')).toHaveAttribute(
+      'aria-describedby',
+      error.id,
+    );
+    expect(screen.getByLabelText('Пароль')).toHaveValue('');
+    fireEvent.change(screen.getByLabelText('Пароль'), {
+      target: { value: `${PASSWORD}-retry` },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    await waitFor(() => expect(fake.login).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
   it('keeps the submit disabled until both login and password are filled', async () => {
     fake.getState.mockResolvedValue({ phase: 'credentials' });
     render(<App />);
@@ -346,9 +395,12 @@ describe('onboarding UI', () => {
     fake.getState.mockResolvedValue({ phase: 'authenticating' });
     render(<App />);
 
-    const submit = await screen.findByRole('button', { name: 'Войти' });
+    const submit = await screen.findByRole('button', {
+      name: 'Выполняется вход…',
+    });
 
     expect(submit).toBeDisabled();
+    expect(submit).toHaveAttribute('aria-busy', 'true');
   });
 
   it('renders the manual SSO panel and opens the TUSUR window', async () => {
@@ -361,6 +413,78 @@ describe('onboarding UI', () => {
     );
 
     expect(fake.openManualSso).toHaveBeenCalledTimes(1);
+  });
+
+  it('prevents duplicate session checks while the request is pending', async () => {
+    fake.getState.mockResolvedValue({ phase: 'welcome' });
+    fake.checkSession.mockImplementationOnce(() => new Promise(() => {}));
+    render(<App />);
+
+    const start = await screen.findByRole('button', { name: 'Начать' });
+    fireEvent.click(start);
+    fireEvent.click(start);
+
+    expect(fake.checkSession).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole('button', { name: 'Проверяем вход…' }),
+    ).toBeDisabled();
+  });
+
+  it('prevents duplicate manual SSO opens and allows retry after failure', async () => {
+    fake.getState.mockResolvedValue({ phase: 'manual_sso' });
+    let finishOpen: ((value: { ok: true }) => void) | undefined;
+    fake.openManualSso
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishOpen = resolve;
+          }),
+      )
+      .mockRejectedValueOnce(new Error('Окно не открылось.'));
+    render(<App />);
+
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Открыть окно входа' }),
+    );
+    const pending = screen.getByRole('button', {
+      name: 'Ожидаем входа в браузере…',
+    });
+    expect(pending).toBeDisabled();
+    expect(
+      screen.getByText('Завершите проверку в окне ТУСУР…'),
+    ).toHaveAttribute('role', 'status');
+    fireEvent.click(pending);
+    expect(fake.openManualSso).toHaveBeenCalledTimes(1);
+
+    await act(async () => finishOpen?.({ ok: true }));
+    fireEvent.click(screen.getByRole('button', { name: 'Открыть окно входа' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Окно не открылось.',
+    );
+    expect(
+      screen.getByRole('button', { name: 'Открыть окно входа' }),
+    ).toBeEnabled();
+  });
+
+  it('clears action errors when the onboarding phase changes', async () => {
+    fake.getState.mockResolvedValue({ phase: 'credentials' });
+    fake.login.mockRejectedValueOnce(new Error('Старая ошибка входа.'));
+    render(<App />);
+
+    fireEvent.change(await screen.findByLabelText('Логин'), {
+      target: { value: 'student' },
+    });
+    fireEvent.change(screen.getByLabelText('Пароль'), {
+      target: { value: PASSWORD },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Войти' }));
+    expect(await screen.findByRole('alert')).toHaveTextContent(
+      'Старая ошибка входа.',
+    );
+
+    act(() => fake.emit({ phase: 'manual_sso' }));
+
+    await waitFor(() => expect(screen.queryByRole('alert')).toBeNull());
   });
 
   it('session_ready opens the main screen and rechecks the session', async () => {
@@ -376,6 +500,21 @@ describe('onboarding UI', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Проверить вход' }));
 
     expect(fake.checkSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('prevents duplicate session checks from settings and reports pending work', async () => {
+    fake.getState.mockResolvedValue({ phase: 'session_ready' });
+    fake.checkSession.mockImplementationOnce(() => new Promise(() => {}));
+    render(<App />);
+
+    const check = await screen.findByRole('button', { name: 'Проверить вход' });
+    fireEvent.click(check);
+    fireEvent.click(check);
+
+    expect(fake.checkSession).toHaveBeenCalledTimes(1);
+    expect(
+      screen.getByRole('button', { name: 'Проверяем вход…' }),
+    ).toBeDisabled();
   });
 
   it('toggles autostart through the app bridge', async () => {

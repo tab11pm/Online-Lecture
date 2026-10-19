@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import type { KeyboardEvent } from 'react';
 import {
   CalendarDays,
   CalendarOff,
@@ -44,9 +45,77 @@ export function AgendaList({
   onCancelReschedule,
 }: AgendaListProps) {
   const [openMenu, setOpenMenu] = useState<string>();
+  const menuRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
 
-  function closeMenu(): void {
+  function closeMenu(restoreFocus = false): void {
+    const trigger = triggerRef.current;
     setOpenMenu(undefined);
+    if (restoreFocus) trigger?.focus();
+  }
+
+  useEffect(() => {
+    if (!openMenu) return;
+    const firstEnabled = menuRef.current?.querySelector<HTMLButtonElement>(
+      '[role="menuitem"]:not(:disabled)',
+    );
+    if (firstEnabled) firstEnabled.focus();
+    else menuRef.current?.focus();
+    function onPointerDown(event: PointerEvent) {
+      const target = event.target;
+      if (
+        target instanceof Node &&
+        !menuRef.current?.parentElement?.contains(target)
+      )
+        closeMenu();
+    }
+    function onKeyDown(event: globalThis.KeyboardEvent) {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeMenu(true);
+      }
+    }
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [openMenu]);
+
+  function moveMenuFocus(event: KeyboardEvent<HTMLDivElement>): void {
+    const items = [
+      ...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        '[role="menuitem"]:not(:disabled)',
+      ),
+    ];
+    if (!items.length) return;
+    const current = items.indexOf(document.activeElement as HTMLButtonElement);
+    if (event.key === 'Tab') {
+      event.preventDefault();
+      const trigger = triggerRef.current;
+      const controls = [
+        ...document.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ].filter(
+        (element) => !element.closest('.agenda-item__menu, [hidden], [inert]'),
+      );
+      const triggerIndex = controls.indexOf(trigger!);
+      controls[triggerIndex + (event.shiftKey ? -1 : 1)]?.focus();
+      closeMenu();
+      return;
+    }
+    let next = current;
+    if (event.key === 'ArrowDown')
+      next = (current + 1 + items.length) % items.length;
+    else if (event.key === 'ArrowUp')
+      next = (current - 1 + items.length) % items.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = items.length - 1;
+    else return;
+    event.preventDefault();
+    items[next]?.focus();
   }
 
   return (
@@ -111,94 +180,153 @@ export function AgendaList({
                 <div className="agenda-item__actions">
                   <button
                     type="button"
+                    ref={
+                      openMenu === `${item.jobId}:${item.occurrenceId}`
+                        ? triggerRef
+                        : undefined
+                    }
                     className="icon-btn agenda-item__menu-trigger"
                     aria-label={`Действия для пары: ${item.title}`}
-                    aria-expanded={openMenu === `${item.jobId}:${item.occurrenceId}`}
-                    onClick={() => {
+                    aria-haspopup="menu"
+                    aria-controls={`agenda-menu-${item.jobId}-${item.occurrenceId}`}
+                    aria-expanded={
+                      openMenu === `${item.jobId}:${item.occurrenceId}`
+                    }
+                    onClick={(event) => {
                       const key = `${item.jobId}:${item.occurrenceId}`;
-                      setOpenMenu((current) => (current === key ? undefined : key));
+                      triggerRef.current = event.currentTarget;
+                      setOpenMenu((current) =>
+                        current === key ? undefined : key,
+                      );
                     }}
                   >
-                    <MoreHorizontal size={17} strokeWidth={1.8} aria-hidden="true" />
+                    <MoreHorizontal
+                      size={17}
+                      strokeWidth={1.8}
+                      aria-hidden="true"
+                    />
                   </button>
                   {openMenu === `${item.jobId}:${item.occurrenceId}` ? (
-                    <div className="agenda-item__menu">
-                    {item.source === 'timetable' ? (
-                      <button
-                        type="button"
-                        className="menu-button"
-                        onClick={() => {
-                          closeMenu();
-                          onSetSkipped(item, !item.skipped);
-                        }}
-                      >
-                        {item.skipped ? (
-                          <RotateCcw size={14} strokeWidth={1.8} aria-hidden="true" />
-                        ) : (
-                          <SkipForward size={14} strokeWidth={1.8} aria-hidden="true" />
-                        )}
-                        {item.skipped ? 'Вернуть' : 'Пропустить'}
-                      </button>
-                    ) : null}
-                    {item.source === 'timetable' && item.editable ? (
-                      <>
+                    <div
+                      id={`agenda-menu-${item.jobId}-${item.occurrenceId}`}
+                      ref={menuRef}
+                      className="agenda-item__menu"
+                      role="menu"
+                      aria-label={`Действия: ${item.title}`}
+                      tabIndex={-1}
+                      onKeyDown={moveMenuFocus}
+                    >
+                      {item.source === 'timetable' ? (
                         <button
                           type="button"
                           className="menu-button"
+                          role="menuitem"
                           onClick={() => {
-                            closeMenu();
-                            onEdit?.(item, 'time');
+                            closeMenu(true);
+                            onSetSkipped(item, !item.skipped);
                           }}
                         >
-                          <PencilLine size={14} strokeWidth={1.8} aria-hidden="true" />
-                          Изменить время
+                          {item.skipped ? (
+                            <RotateCcw
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <SkipForward
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                          )}
+                          {item.skipped ? 'Вернуть' : 'Пропустить'}
                         </button>
+                      ) : null}
+                      {item.source === 'timetable' && item.editable ? (
+                        <>
+                          <button
+                            type="button"
+                            className="menu-button"
+                            role="menuitem"
+                            onClick={() => {
+                              closeMenu(true);
+                              onEdit?.(item, 'time');
+                            }}
+                          >
+                            <PencilLine
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                            Изменить время
+                          </button>
+                          <button
+                            type="button"
+                            className="menu-button"
+                            role="menuitem"
+                            onClick={() => {
+                              closeMenu(true);
+                              onEdit?.(item, 'move');
+                            }}
+                          >
+                            <CalendarDays
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                            Перенести
+                          </button>
+                        </>
+                      ) : null}
+                      {item.rescheduledFrom ? (
                         <button
                           type="button"
                           className="menu-button"
+                          role="menuitem"
+                          disabled={!item.editable}
                           onClick={() => {
-                            closeMenu();
-                            onEdit?.(item, 'move');
+                            closeMenu(true);
+                            onCancelReschedule?.(item);
+                          }}
+                          title={
+                            !item.editable ? 'Пара уже началась' : undefined
+                          }
+                        >
+                          <Undo2
+                            size={14}
+                            strokeWidth={1.8}
+                            aria-hidden="true"
+                          />
+                          Отменить перенос
+                        </button>
+                      ) : null}
+                      {!item.rescheduledFrom &&
+                      (item.source === 'manual' || item.editable) ? (
+                        <button
+                          type="button"
+                          className="menu-button menu-button--danger"
+                          role="menuitem"
+                          onClick={() => {
+                            closeMenu(true);
+                            onDelete?.(item);
                           }}
                         >
-                          <CalendarDays size={14} strokeWidth={1.8} aria-hidden="true" />
-                          Перенести
+                          {item.source === 'manual' ? (
+                            <Trash2
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                          ) : (
+                            <EyeOff
+                              size={14}
+                              strokeWidth={1.8}
+                              aria-hidden="true"
+                            />
+                          )}
+                          {item.source === 'manual' ? 'Удалить' : 'Скрыть пару'}
                         </button>
-                      </>
-                    ) : null}
-                    {item.rescheduledFrom ? (
-                      <button
-                        type="button"
-                        className="menu-button"
-                        disabled={!item.editable}
-                        onClick={() => {
-                          closeMenu();
-                          onCancelReschedule?.(item);
-                        }}
-                        title={!item.editable ? 'Пара уже началась' : undefined}
-                      >
-                        <Undo2 size={14} strokeWidth={1.8} aria-hidden="true" />
-                        Отменить перенос
-                      </button>
-                    ) : null}
-                    {!item.rescheduledFrom &&
-                    (item.source === 'manual' || item.editable) ? (
-                      <button
-                        type="button"
-                        className="menu-button menu-button--danger"
-                        onClick={() => {
-                          closeMenu();
-                          onDelete?.(item);
-                        }}
-                      >
-                        {item.source === 'manual' ? (
-                          <Trash2 size={14} strokeWidth={1.8} aria-hidden="true" />
-                        ) : (
-                          <EyeOff size={14} strokeWidth={1.8} aria-hidden="true" />
-                        )}
-                        {item.source === 'manual' ? 'Удалить' : 'Скрыть пару'}
-                      </button>
-                    ) : null}
+                      ) : null}
                     </div>
                   ) : null}
                 </div>

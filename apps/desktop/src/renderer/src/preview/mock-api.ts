@@ -58,6 +58,13 @@ export function installMock(scenario: PreviewScenario): void {
         filter: JournalFilter,
         cursor?: string,
       ): Promise<JournalPage> => {
+        if (scenario.journalMode === 'loading') return new Promise(() => {});
+        if (
+          scenario.journalMode === 'error' ||
+          (scenario.journalMode === 'pagination-error' && cursor)
+        ) {
+          throw new Error('Не удалось загрузить записи.');
+        }
         if (scenario.journalEmpty) return { items: [] };
         const items =
           filter === 'errors'

@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react';
-import { LogIn, Monitor, Power, Settings2 } from 'lucide-react';
+import { LoaderCircle, LogIn, Monitor, Power, Settings2 } from 'lucide-react';
 import { desktop } from '../api';
 import { BrowserChoice } from './BrowserChoice';
 
 export interface SettingsPanelProps {
   onCheckSession(): void;
+  checkingSession?: boolean;
 }
 
-export function SettingsPanel({ onCheckSession }: SettingsPanelProps) {
+export function SettingsPanel({
+  onCheckSession,
+  checkingSession = false,
+}: SettingsPanelProps) {
   const [autostart, setAutostart] = useState(false);
   const [showWindow, setShowWindow] = useState(true);
   const [error, setError] = useState<string>();
@@ -103,9 +107,19 @@ export function SettingsPanel({ onCheckSession }: SettingsPanelProps) {
           </p>
         ) : null}
         <div className="settings__actions">
-          <button type="button" className="btn" onClick={onCheckSession}>
-            <LogIn size={15} strokeWidth={1.8} aria-hidden="true" />
-            Проверить вход
+          <button
+            type="button"
+            className="btn"
+            onClick={onCheckSession}
+            disabled={checkingSession}
+            aria-busy={checkingSession}
+          >
+            {checkingSession ? (
+              <LoaderCircle className="spin" size={15} aria-hidden="true" />
+            ) : (
+              <LogIn size={15} strokeWidth={1.8} aria-hidden="true" />
+            )}
+            {checkingSession ? 'Проверяем вход…' : 'Проверить вход'}
           </button>
         </div>
         <BrowserChoice bannerOwnsInstall />
