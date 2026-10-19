@@ -293,7 +293,7 @@ export class CoreHost {
           await this.lectures.cancelReschedule(command.jobId);
           break;
         case 'lectures.deleteLecture':
-          await this.lectures.deleteLecture(command.jobId, command.date);
+          await this.lectures.deleteLecture(command.jobId, command.occurrenceId);
           break;
       }
       this.transport.post({

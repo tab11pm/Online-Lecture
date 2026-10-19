@@ -104,7 +104,7 @@ export function MainScreen({ onCheckSession }: MainScreenProps) {
               run(
                 desktop.lectures.deleteLecture(
                   item.jobId,
-                  item.source === 'timetable' ? item.date : undefined,
+                  item.source === 'timetable' ? item.occurrenceId : undefined,
                 ),
               )
             }

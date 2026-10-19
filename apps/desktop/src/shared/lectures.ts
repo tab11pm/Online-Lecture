@@ -26,7 +26,7 @@ export interface AgendaItem {
   title: string;
   source: 'manual' | 'timetable';
   editable: boolean;
-  rescheduledFrom?: { jobId: string; date: string };
+  rescheduledFrom?: { jobId: string; date: string; occurrenceId?: string };
   date: string;
   joinAt: string;
   leaveAt: string;

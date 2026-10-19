@@ -30,6 +30,34 @@ function occurrencesOf(job: Job): ImportedOccurrence[] {
 }
 
 describe('mergeImportedJobs', () => {
+  it('preserves an edited second occurrence when a date has two lessons', () => {
+    const incoming = base({
+      schedule: {
+        type: 'imported',
+        timezone: 'Asia/Tomsk',
+        occurrences: [
+          occ('2026-10-21', { joinAt: '10:00', leaveAt: '11:35' }),
+          occ('2026-10-21', { joinAt: '12:00', leaveAt: '13:35' }),
+        ],
+      },
+    });
+    const existing = structuredClone(incoming);
+    if (existing.schedule.type !== 'imported')
+      throw new Error('Expected imported');
+    existing.schedule.occurrences[1] = {
+      ...existing.schedule.occurrences[1]!,
+      joinAt: '12:05',
+      leaveAt: '13:40',
+      originalJoinAt: '12:00',
+      edited: true,
+    };
+    const result = mergeImportedJobs([existing], [incoming]);
+    expect(occurrencesOf(result.jobs[0]!)).toMatchObject([
+      { joinAt: '10:00' },
+      { joinAt: '12:05', originalJoinAt: '12:00', edited: true },
+    ]);
+  });
+
   it('suppresses only a discipline matching the manual title', () => {
     const manual: Job = {
       id: 'manual:physics',

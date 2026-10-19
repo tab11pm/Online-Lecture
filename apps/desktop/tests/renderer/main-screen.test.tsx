@@ -144,7 +144,20 @@ describe('main screen', () => {
     expect(screen.getByRole('region', { name: /Изменить Математический анализ/ })).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть пару' }));
-    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith('job-1', '2026-10-19');
+    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith('job-1', 'occ-1');
+  });
+
+  it('passes the selected occurrence when hiding the second pair on one day', async () => {
+    show({
+      agenda: [
+        item({ occurrenceId: 'occ-first' }),
+        item({ occurrenceId: 'occ-second', joinAt: '10:40', leaveAt: '12:15' }),
+      ],
+    });
+    render(<App />);
+    const buttons = await screen.findAllByRole('button', { name: 'Скрыть пару' });
+    fireEvent.click(buttons[1]!);
+    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith('job-1', 'occ-second');
   });
 
   it('opens the manual lecture wizard from the main screen', async () => {

@@ -220,34 +220,35 @@ function mergeMatchedJob(
 ): Job {
   const existingOccurrences = occurrencesOf(existingJob);
   const importedOccurrences = occurrencesOf(importedJob);
-  const existingByDate = new Map(
-    existingOccurrences.map((occurrence) => [occurrence.date, occurrence]),
-  );
-  const importedDates = new Set(
-    importedOccurrences.map((occurrence) => occurrence.date),
-  );
-
-  for (const occurrence of importedOccurrences) {
-    if (!existingByDate.has(occurrence.date)) {
-      summary.added += 1;
-    }
-  }
-
-  for (const occurrence of existingOccurrences) {
-    if (
-      prune &&
-      !importedDates.has(occurrence.date) &&
-      !occurrence.edited &&
-      !occurrence.suppressed
-    ) {
-      summary.removed += 1;
-    }
-  }
-
+  const key = (occurrence: ImportedOccurrence) =>
+    `${occurrence.date}\u0000${occurrence.originalJoinAt ?? occurrence.joinAt}`;
+  const matched = new Set<number>();
   const occurrences: ImportedOccurrence[] = [];
 
   for (const importedOccurrence of importedOccurrences) {
-    const prior = existingByDate.get(importedOccurrence.date);
+    let priorIndex = existingOccurrences.findIndex(
+      (entry, index) =>
+        !matched.has(index) && key(entry) === key(importedOccurrence),
+    );
+    if (priorIndex < 0) {
+      const oldEntries = existingOccurrences
+        .map((entry, index) => ({ entry, index }))
+        .filter(({ entry }) => entry.date === importedOccurrence.date);
+      const newEntries = importedOccurrences.filter(
+        (entry) => entry.date === importedOccurrence.date,
+      );
+      if (
+        oldEntries.length === 1 &&
+        newEntries.length === 1 &&
+        oldEntries[0]!.entry.edited &&
+        !oldEntries[0]!.entry.originalJoinAt
+      ) {
+        priorIndex = oldEntries[0]!.index;
+      }
+    }
+    if (priorIndex >= 0) matched.add(priorIndex);
+    else summary.added += 1;
+    const prior = existingOccurrences[priorIndex];
     const deduped = applyManualDedup(
       importedOccurrence,
       discipline,
@@ -274,10 +275,8 @@ function mergeMatchedJob(
     }
   }
 
-  for (const prior of existingOccurrences) {
-    if (importedDates.has(prior.date)) {
-      continue;
-    }
+  for (const [index, prior] of existingOccurrences.entries()) {
+    if (matched.has(index)) continue;
     if (prior.edited) {
       const deduped = applyManualDedup(
         prior,
@@ -294,6 +293,8 @@ function mergeMatchedJob(
       occurrences.push({ ...prior });
     } else if (!prune) {
       occurrences.push({ ...prior });
+    } else {
+      summary.removed += 1;
     }
   }
 

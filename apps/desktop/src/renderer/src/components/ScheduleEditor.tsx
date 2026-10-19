@@ -30,6 +30,7 @@ export function ScheduleEditor({
         await desktop.lectures.editImportedTime({
           jobId: item.jobId,
           date: item.date,
+          occurrenceId: item.occurrenceId,
           joinAt,
           leaveAt,
         });
@@ -37,6 +38,7 @@ export function ScheduleEditor({
         await desktop.lectures.reschedule({
           jobId: item.jobId,
           date: item.date,
+          occurrenceId: item.occurrenceId,
           newDate: date,
           newJoinAt: joinAt,
           newLeaveAt: leaveAt,

@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { DateTime } from 'luxon';
 import {
   editImportedTime as editImportedJob,
+  importedEntry as selectImportedEntry,
   makeRescheduledJob,
   validateManualSchedule,
   SCHEDULE_TIMEZONE,
@@ -96,16 +97,13 @@ export class SqliteJobRepository implements JobRepository {
       .transaction(() => {
         const job = this.readJob(input.jobId);
         if (!job) throw new Error('Lecture not found');
-        const entry = this.importedEntry(job, input.date);
+        const entry = this.importedEntry(job, input.date, input.occurrenceId);
         this.assertPending(job, input.date, entry.joinAt, now);
         const edited = editImportedJob(job, input);
         const schedule = edited.schedule;
         if (schedule.type !== 'imported')
           throw new Error('Imported lecture not found');
-        const changed = schedule.occurrences.find(
-          (item) => item.date === input.date,
-        )!;
-        this.assertFuture(schedule.timezone, input.date, changed.joinAt, now);
+        this.assertFuture(schedule.timezone, input.date, input.joinAt, now);
         this.writeJob(edited);
       })
       .immediate();
@@ -118,7 +116,7 @@ export class SqliteJobRepository implements JobRepository {
       .transaction(() => {
         const job = this.readJob(input.jobId);
         if (!job) throw new Error('Lecture not found');
-        const entry = this.importedEntry(job, input.date);
+        const entry = this.importedEntry(job, input.date, input.occurrenceId);
         this.assertPending(job, input.date, entry.joinAt, now);
         this.assertFuture(
           job.schedule.timezone,
@@ -129,7 +127,9 @@ export class SqliteJobRepository implements JobRepository {
         const duplicate = this.readAll().some(
           (item) =>
             item.rescheduledFrom?.jobId === job.id &&
-            item.rescheduledFrom.date === input.date,
+            (input.occurrenceId
+              ? item.rescheduledFrom.occurrenceId === input.occurrenceId
+              : item.rescheduledFrom.date === input.date),
         );
         if (duplicate) throw new Error('Occurrence already rescheduled');
         const id = `manual:${randomUUID()}`;
@@ -171,6 +171,7 @@ export class SqliteJobRepository implements JobRepository {
         const entry = this.importedEntry(
           source,
           replacement.rescheduledFrom.date,
+          replacement.rescheduledFrom.occurrenceId,
         );
         if (source.schedule.type !== 'imported')
           throw new Error('Source lecture not found');
@@ -197,7 +198,7 @@ export class SqliteJobRepository implements JobRepository {
           schedule: {
             ...source.schedule,
             occurrences: source.schedule.occurrences.map((item) =>
-              item.date === entry.date ? { ...item, suppressed: false } : item,
+              item === entry ? { ...item, suppressed: false } : item,
             ),
           },
         };
@@ -320,14 +321,9 @@ export class SqliteJobRepository implements JobRepository {
       .run(job.id, JSON.stringify(job), new Date().toISOString());
   }
 
-  private importedEntry(job: Job, date: string) {
-    if (job.source !== 'timetable' || job.schedule.type !== 'imported')
-      throw new Error('Imported lecture not found');
-    const matches = job.schedule.occurrences.filter(
-      (item) => item.date === date,
-    );
-    if (matches.length !== 1) throw new Error('Imported occurrence not found');
-    return matches[0]!;
+  private importedEntry(job: Job, date: string, occurrenceId?: string) {
+    const { index, schedule } = selectImportedEntry(job, date, occurrenceId);
+    return schedule.occurrences[index]!;
   }
 
   private assertFuture(
