@@ -1,4 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  ChevronDown,
+  History,
+  ListFilter,
+  TriangleAlert,
+} from 'lucide-react';
 import type {
   JournalFilter,
   JournalItem,
@@ -136,36 +143,59 @@ export function JournalScreen({ onBack }: JournalScreenProps) {
   }
 
   return (
-    <main>
-      <button type="button" onClick={onBack}>
-        Назад
-      </button>
-      <h1 ref={headingRef} tabIndex={-1}>
-        Журнал
-      </h1>
-      <p>История запусков и важных событий хранится на этом компьютере.</p>
-      <div role="group" aria-label="Фильтр журнала">
-        <button
-          type="button"
-          aria-pressed={filter === 'all'}
-          onClick={() => setFilter('all')}
-        >
-          Все
-        </button>
-        <button
-          type="button"
-          aria-pressed={filter === 'errors'}
-          onClick={() => setFilter('errors')}
-        >
-          Ошибки
+    <main className="journal">
+      <div className="journal__head">
+        <div>
+          <p className="eyebrow">История</p>
+          <h1 ref={headingRef} tabIndex={-1}>
+            <History size={30} strokeWidth={1.6} aria-hidden="true" />
+            Журнал
+          </h1>
+        </div>
+        <button type="button" className="btn btn--ghost" onClick={onBack}>
+          <ArrowLeft size={15} strokeWidth={1.8} aria-hidden="true" />
+          Назад
         </button>
       </div>
-      {loading ? <p role="status">Загрузка журнала…</p> : null}
+      <p className="journal__lede">
+        История запусков и важных событий хранится на этом компьютере.
+      </p>
+      <div className="journal__toolbar">
+        <div className="segmented" role="group" aria-label="Фильтр журнала">
+          <button
+            type="button"
+            aria-pressed={filter === 'all'}
+            onClick={() => setFilter('all')}
+          >
+            <ListFilter size={12} strokeWidth={1.8} aria-hidden="true" />
+            Все
+          </button>
+          <button
+            type="button"
+            aria-pressed={filter === 'errors'}
+            onClick={() => setFilter('errors')}
+          >
+            <TriangleAlert size={12} strokeWidth={1.8} aria-hidden="true" />
+            Ошибки
+          </button>
+        </div>
+        {page ? (
+          <span className="journal__count">
+            {page.items.length} {page.items.length === 1 ? 'запись' : 'записей'}
+          </span>
+        ) : null}
+      </div>
+      {loading ? (
+        <p role="status" className="empty">
+          Загрузка журнала…
+        </p>
+      ) : null}
       {error ? (
-        <p role="alert">
+        <p role="alert" className="alert alert--error">
           Не удалось загрузить журнал.{' '}
           <button
             type="button"
+            className="link-button"
             onClick={() => setRefresh((value) => value + 1)}
           >
             Повторить
@@ -173,31 +203,58 @@ export function JournalScreen({ onBack }: JournalScreenProps) {
         </p>
       ) : null}
       {!loading && page?.items.length === 0 ? (
-        <p role="status">Записей пока нет.</p>
+        <p role="status" className="empty">
+          Записей пока нет.
+        </p>
       ) : null}
       {page?.items.length ? (
-        <ol aria-label="Записи журнала">
+        <ol className="journal-list" aria-label="Записи журнала">
           {page.items.map((item) => (
-            <li key={item.id}>
-              <time dateTime={item.at}>{dateLabel(item.at)}</time>{' '}
-              <strong>{item.title}</strong>
-              {' — '}
-              <span>{statusLabel(item)}</span>
-              {reasonLabel(item) ? <> · {reasonLabel(item)}</> : null}
+            <li
+              key={item.id}
+              className={`journal-item${item.isError ? ' is-error' : ''}`}
+            >
+              <time dateTime={item.at}>{dateLabel(item.at)}</time>
+              <div className="journal-item__body">
+                <strong>{item.title}</strong>
+                <span className="journal-item__status">
+                  {item.isError ? (
+                    <TriangleAlert
+                      size={12}
+                      strokeWidth={1.8}
+                      aria-hidden="true"
+                    />
+                  ) : null}
+                  <span>{statusLabel(item)}</span>
+                  {reasonLabel(item) ? (
+                    <span>· {reasonLabel(item)}</span>
+                  ) : null}
+                </span>
+              </div>
             </li>
           ))}
         </ol>
       ) : null}
       {page?.nextCursor ? (
-        <button
-          type="button"
-          disabled={loadingMore}
-          onClick={() => {
-            void loadMore();
-          }}
-        >
-          {loadingMore ? 'Загрузка…' : 'Показать ещё'}
-        </button>
+        <div className="journal__more">
+          <button
+            type="button"
+            className="btn"
+            disabled={loadingMore}
+            onClick={() => {
+              void loadMore();
+            }}
+          >
+            {loadingMore ? (
+              'Загрузка…'
+            ) : (
+              <>
+                Показать ещё
+                <ChevronDown size={14} strokeWidth={1.8} aria-hidden="true" />
+              </>
+            )}
+          </button>
+        </div>
       ) : null}
     </main>
   );

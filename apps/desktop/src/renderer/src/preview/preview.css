@@ -1,0 +1,9 @@
+.preview-dock {
+  font-family: var(--sans);
+}
+
+@media print {
+  .preview-dock {
+    display: none;
+  }
+}

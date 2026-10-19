@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { FormEvent } from 'react';
+import { KeyRound, LockKeyhole, LogIn, UserRound } from 'lucide-react';
 import type { LoginInput } from '../../../shared/ipc-contract.js';
 
 export interface CredentialsFormProps {
@@ -28,36 +29,67 @@ export function CredentialsForm({
   }
 
   return (
-    <main>
-      <h1>Вход в ТУСУР</h1>
-      {error ? <p role="alert">{error}</p> : null}
-      <form onSubmit={handleSubmit}>
-        <label htmlFor="username">Логин</label>
-        <input
-          id="username"
-          name="username"
-          type="text"
-          autoComplete="username"
-          required
-          value={username}
-          disabled={disabled}
-          onChange={(event) => setUsername(event.target.value)}
-        />
-        <label htmlFor="password">Пароль</label>
-        <input
-          id="password"
-          name="password"
-          type="password"
-          autoComplete="current-password"
-          required
-          value={password}
-          disabled={disabled}
-          onChange={(event) => setPassword(event.target.value)}
-        />
-        <button type="submit" disabled={disabled || !canSubmit}>
-          Войти
-        </button>
+    <div className="panel">
+      <p className="panel__eyebrow">Шаг 1 · учётная запись</p>
+      <h2 className="panel__title">Вход в ТУСУР</h2>
+      <p className="panel__lede">
+        Логин и пароль от личного кабинета. Они не покидают этот компьютер.
+      </p>
+      {error ? (
+        <p role="alert" className="alert alert--error">
+          {error}
+        </p>
+      ) : null}
+      <form className="form" onSubmit={handleSubmit}>
+        <div className="field">
+          <label htmlFor="username">
+            <UserRound size={13} strokeWidth={1.8} aria-hidden="true" />
+            Логин
+          </label>
+          <input
+            id="username"
+            name="username"
+            className="input"
+            type="text"
+            autoComplete="username"
+            required
+            value={username}
+            disabled={disabled}
+            onChange={(event) => setUsername(event.target.value)}
+          />
+        </div>
+        <div className="field">
+          <label htmlFor="password">
+            <KeyRound size={13} strokeWidth={1.8} aria-hidden="true" />
+            Пароль
+          </label>
+          <input
+            id="password"
+            name="password"
+            className="input"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            disabled={disabled}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </div>
+        <div className="form-actions">
+          <button
+            type="submit"
+            className="btn btn--primary"
+            disabled={disabled || !canSubmit}
+          >
+            <LogIn size={15} strokeWidth={1.8} aria-hidden="true" />
+            Войти
+          </button>
+        </div>
       </form>
-    </main>
+      <p className="fineprint fineprint--icon">
+        <LockKeyhole size={12} strokeWidth={1.8} aria-hidden="true" />
+        Пароль шифруется средствами Windows и хранится только локально.
+      </p>
+    </div>
   );
 }

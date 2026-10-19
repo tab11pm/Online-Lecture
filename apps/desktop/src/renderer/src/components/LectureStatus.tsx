@@ -1,3 +1,11 @@
+import {
+  Activity,
+  CalendarOff,
+  CircleStop,
+  Clock3,
+  History,
+  Radio,
+} from 'lucide-react';
 import type { LecturesView } from '../../../shared/lectures.js';
 import {
   completionReasonLabels,
@@ -14,27 +22,68 @@ export interface LectureStatusProps {
 export function LectureStatus({ view, onStop }: LectureStatusProps) {
   const { current, next, lastRun } = view;
   return (
-    <section aria-label="Статус">
-      <h2>Статус</h2>
+    <section className="card status-card" aria-label="Статус">
+      <div className="card__head">
+        <h2>
+          <Activity size={17} strokeWidth={1.8} aria-hidden="true" />
+          Статус
+        </h2>
+        <span className="card__index">01</span>
+      </div>
       {current ? (
-        <div>
-          <p>
-            Сейчас идёт: {current.title}, до {isoClock(current.leaveAt)}
+        <div className="status-card__live">
+          <div className="status-card__flags">
+            <span className="chip chip--amber">
+              <Radio size={10} strokeWidth={2} aria-hidden="true" />
+              Сейчас
+            </span>
+            <span className="chip">Только слушаю</span>
+          </div>
+          <p className="status-card__now">
+            {`Сейчас идёт: ${current.title}, до ${isoClock(current.leaveAt)}`}
           </p>
-          <p>Состояние: {runStatusLabels[current.status]}</p>
-          <button type="button" onClick={onStop}>
-            Остановить
-          </button>
+          <p className="status-card__state">
+            Состояние: {runStatusLabels[current.status]}
+          </p>
+          <div className="status-card__actions">
+            <button type="button" className="btn btn--danger" onClick={onStop}>
+              <CircleStop size={15} strokeWidth={1.8} aria-hidden="true" />
+              Остановить
+            </button>
+          </div>
         </div>
       ) : next ? (
-        <p>
-          Ближайшая: {weekdayName(next.date)} {next.joinAt} {next.title}
-        </p>
+        <div className="status-card__next">
+          <div className="status-card__flags">
+            <span className="chip chip--amber">
+              <Clock3 size={10} strokeWidth={2} aria-hidden="true" />
+              Дальше
+            </span>
+            <span className="chip">
+              {next.source === 'manual' ? 'вручную' : 'из расписания'}
+            </span>
+          </div>
+          <p className="status-card__now">
+            Ближайшая: {weekdayName(next.date)} {next.joinAt} {next.title}
+          </p>
+        </div>
       ) : (
-        <p>Онлайн-пар не найдено</p>
+        <div className="empty-state">
+          <CalendarOff
+            className="empty-state__icon"
+            size={22}
+            strokeWidth={1.6}
+            aria-hidden="true"
+          />
+          <p className="empty-state__title">Онлайн-пар не найдено</p>
+          <p className="empty-state__text">
+            Обновите расписание или добавьте пару вручную.
+          </p>
+        </div>
       )}
       {lastRun ? (
-        <p>
+        <p className="status-card__last">
+          <History size={13} strokeWidth={1.8} aria-hidden="true" />
           Последний запуск: {lastRun.title} — {runStatusLabels[lastRun.status]}
           {lastRun.completionReason
             ? `, ${completionReasonLabels[lastRun.completionReason]}`

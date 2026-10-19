@@ -1,3 +1,4 @@
+import { CircleAlert, RefreshCw, TriangleAlert } from 'lucide-react';
 import type { ImportStage, ImportView } from '../../../shared/lectures.js';
 
 const stages: Array<{ id: ImportStage; label: string }> = [
@@ -27,11 +28,21 @@ export function ImportPanel({ view, onImport }: ImportPanelProps) {
         ? view.lastSuccessAt
         : undefined;
   return (
-    <section aria-label="Расписание">
-      <h2>Расписание</h2>
-      {updatedAt ? <p>Обновлено: {formatTime(updatedAt)}</p> : null}
+    <section className="card import-card" aria-label="Расписание">
+      <div className="card__head">
+        <h2>
+          <RefreshCw size={17} strokeWidth={1.8} aria-hidden="true" />
+          Расписание
+        </h2>
+        <span className="card__index">03</span>
+      </div>
+      {updatedAt ? (
+        <p className="import-card__updated">
+          Обновлено: {formatTime(updatedAt)}
+        </p>
+      ) : null}
       {view.status === 'running' ? (
-        <ol>
+        <ol className="import-steps">
           {stages.map((stage) => (
             <li
               key={stage.id}
@@ -43,8 +54,11 @@ export function ImportPanel({ view, onImport }: ImportPanelProps) {
         </ol>
       ) : null}
       {view.status === 'done' && view.unresolved.length > 0 ? (
-        <div>
-          <p>Не удалось найти лекцию в СДО:</p>
+        <div className="alert alert--warn">
+          <p className="alert__row">
+            <TriangleAlert size={14} strokeWidth={1.8} aria-hidden="true" />
+            Не удалось найти лекцию в СДО:
+          </p>
           <ul>
             {view.unresolved.map((name) => (
               <li key={name}>{name}</li>
@@ -52,10 +66,24 @@ export function ImportPanel({ view, onImport }: ImportPanelProps) {
           </ul>
         </div>
       ) : null}
-      {view.status === 'failed' ? <p role="alert">{view.message}</p> : null}
-      <button type="button" disabled={running} onClick={onImport}>
+      {view.status === 'failed' ? (
+        <p role="alert" className="alert alert--error alert__row">
+          <CircleAlert size={14} strokeWidth={1.8} aria-hidden="true" />
+          {view.message}
+        </p>
+      ) : null}
+      <button
+        type="button"
+        className="btn btn--primary btn--block"
+        disabled={running}
+        onClick={onImport}
+      >
+        <RefreshCw size={15} strokeWidth={1.8} aria-hidden="true" />
         Обновить расписание
       </button>
+      <p className="fineprint">
+        Онлайн-пары берутся из расписания ТУСУР и обновляются автоматически.
+      </p>
     </section>
   );
 }

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Download, TriangleAlert } from 'lucide-react';
 import type { BrowserView } from '../../../shared/browser-choice.js';
 import { desktop } from '../api';
 import { chromiumMissing } from './BrowserChoice';
@@ -52,19 +53,35 @@ export function ChromiumBanner() {
   }
 
   return (
-    <section aria-label="Установка Chromium">
+    <section className="card banner" aria-label="Установка Chromium">
+      <p className="banner__title">
+        <TriangleAlert size={16} strokeWidth={1.8} aria-hidden="true" />
+        Для лекций нужен Chromium
+      </p>
+      <p className="banner__text">
+        Он скачается один раз и останется внутри приложения. Node.js и терминал
+        не нужны.
+      </p>
       <button
         type="button"
+        className="btn btn--amber btn--block"
         disabled={installing}
         onClick={() => void install()}
       >
+        <Download size={15} strokeWidth={1.8} aria-hidden="true" />
         {view?.install.status === 'error'
           ? 'Повторить установку'
           : 'Установить Chromium'}
       </button>
-      {installing ? <p role="status">Установка Chromium…</p> : null}
+      {installing ? (
+        <p role="status" className="browser-choice__note">
+          Установка Chromium…
+        </p>
+      ) : null}
       {error || installError ? (
-        <p role="alert">{error ?? installError}</p>
+        <p role="alert" className="alert alert--error">
+          {error ?? installError}
+        </p>
       ) : null}
     </section>
   );

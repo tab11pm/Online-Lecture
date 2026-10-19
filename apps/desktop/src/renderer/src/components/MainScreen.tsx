@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { History, Plus } from 'lucide-react';
 import type { AgendaItem, LecturesView } from '../../../shared/lectures.js';
 import { desktop } from '../api';
 import { AgendaList } from './AgendaList';
@@ -18,6 +19,14 @@ function message(error: unknown): string {
   return error instanceof Error
     ? error.message
     : 'Не удалось выполнить действие.';
+}
+
+function todayLabel(): string {
+  return new Intl.DateTimeFormat('ru-RU', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+  }).format(new Date());
 }
 
 export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
@@ -60,77 +69,108 @@ export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
   }
 
   return (
-    <main>
-      <h1>Online Lecture</h1>
-      <button type="button" onClick={onOpenJournal}>
-        Журнал
-      </button>
-      {notice ? <p role="alert">{notice}</p> : null}
-      {error ? <p role="alert">{error}</p> : null}
-      {view ? (
-        <>
-          <LectureStatus
-            view={view}
-            onStop={() => run(desktop.lectures.stopCurrent())}
-          />
-          <ImportPanel
-            view={view.import}
-            onImport={() => run(desktop.lectures.importNow())}
-          />
+    <div className="page">
+      <div className="page-head">
+        <div>
+          <p className="page-head__date">{todayLabel()}</p>
+          <h1>Online Lecture</h1>
+          <p className="page-head__sub">
+            Ближайшие пары и состояние подключения. Всё хранится локально.
+          </p>
+        </div>
+        <div className="page-actions">
           <button
             type="button"
+            className="btn btn--ghost"
+            onClick={onOpenJournal}
+          >
+            <History size={15} strokeWidth={1.8} aria-hidden="true" />
+            Журнал
+          </button>
+          <button
+            type="button"
+            className="btn btn--primary"
             onClick={() => {
               setShowWizard(true);
               setEditing(undefined);
             }}
           >
+            <Plus size={16} strokeWidth={2} aria-hidden="true" />
             Добавить пару
           </button>
-          {showWizard ? (
-            <ManualLectureWizard
-              onClose={() => setShowWizard(false)}
-              onAuthRequired={onCheckSession}
+        </div>
+      </div>
+
+      {notice ? (
+        <p role="alert" className="alert">
+          {notice}
+        </p>
+      ) : null}
+      {error ? (
+        <p role="alert" className="alert alert--error">
+          {error}
+        </p>
+      ) : null}
+
+      {view ? (
+        <div className="workspace">
+          <div className="column">
+            <LectureStatus
+              view={view}
+              onStop={() => run(desktop.lectures.stopCurrent())}
             />
-          ) : null}
-          {editing ? (
-            <ScheduleEditor
-              item={editing}
-              onClose={() => setEditing(undefined)}
+            <AgendaList
+              agenda={view.agenda}
+              onEdit={(item) => {
+                setEditing(item);
+                setShowWizard(false);
+              }}
+              onDelete={(item) =>
+                run(
+                  desktop.lectures.deleteLecture(
+                    item.jobId,
+                    item.source === 'timetable' ? item.occurrenceId : undefined,
+                  ),
+                )
+              }
+              onCancelReschedule={(item) =>
+                run(desktop.lectures.cancelReschedule(item.jobId))
+              }
+              onSetSkipped={(item: AgendaItem, skipped: boolean) =>
+                run(
+                  desktop.lectures.setSkipped(
+                    item.jobId,
+                    item.occurrenceId,
+                    skipped,
+                  ),
+                )
+              }
             />
-          ) : null}
-          <AgendaList
-            agenda={view.agenda}
-            onEdit={(item) => {
-              setEditing(item);
-              setShowWizard(false);
-            }}
-            onDelete={(item) =>
-              run(
-                desktop.lectures.deleteLecture(
-                  item.jobId,
-                  item.source === 'timetable' ? item.occurrenceId : undefined,
-                ),
-              )
-            }
-            onCancelReschedule={(item) =>
-              run(desktop.lectures.cancelReschedule(item.jobId))
-            }
-            onSetSkipped={(item: AgendaItem, skipped: boolean) =>
-              run(
-                desktop.lectures.setSkipped(
-                  item.jobId,
-                  item.occurrenceId,
-                  skipped,
-                ),
-              )
-            }
-          />
-        </>
+          </div>
+          <aside className="column">
+            <ImportPanel
+              view={view.import}
+              onImport={() => run(desktop.lectures.importNow())}
+            />
+            <ChromiumBanner />
+            <SettingsPanel onCheckSession={onCheckSession} />
+          </aside>
+        </div>
       ) : (
-        <p role="status">Загрузка…</p>
+        <p role="status" className="empty">
+          Загрузка…
+        </p>
       )}
-      <ChromiumBanner />
-      <SettingsPanel onCheckSession={onCheckSession} />
-    </main>
+
+      {showWizard ? (
+        <ManualLectureWizard
+          onClose={() => setShowWizard(false)}
+          onAuthRequired={onCheckSession}
+        />
+      ) : null}
+      {editing ? (
+        <ScheduleEditor item={editing} onClose={() => setEditing(undefined)} />
+      ) : null}
+    </div>
   );
 }

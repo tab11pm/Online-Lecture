@@ -8,6 +8,7 @@
     "build:native": "node scripts/build-native-sqlite.mjs",
     "predev": "npm run build:native",
     "dev": "electron-vite dev",
+    "preview": "vite --config vite.preview.config.ts",
     "prebuild": "npm run build:native",
     "build": "electron-vite build",
     "typecheck": "tsc --noEmit -p tsconfig.node.json && tsc --noEmit -p tsconfig.web.json",
@@ -15,7 +16,11 @@
     "start": "electron-vite preview"
   },
   "dependencies": {
+    "@fontsource/golos-text": "^5.3.0",
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/source-serif-4": "^5.3.1",
     "@modelcontextprotocol/sdk": "^1.0.0",
+    "lucide-react": "^1.59.0",
     "playwright": "^1.52.0",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
