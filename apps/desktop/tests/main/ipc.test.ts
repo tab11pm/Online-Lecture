@@ -40,11 +40,39 @@ function handlersWith(overrides: IpcHandlerMap = {}): IpcHandlerMap {
 }
 
 describe('registerIpc', () => {
+  it('rejects invalid journal filter and oversized cursor before dispatch', async () => {
+    const { ipcMain, invoke } = fakeIpcMain();
+    const list = vi.fn();
+    registerIpc({
+      ipcMain,
+      handlers: handlersWith({ [CHANNELS.journal.list]: list }),
+    });
+
+    await expect(invoke(CHANNELS.journal.list, 'unknown')).rejects.toThrow();
+    await expect(
+      invoke(CHANNELS.journal.list, 'all', 'x'.repeat(513)),
+    ).rejects.toThrow();
+    expect(list).not.toHaveBeenCalled();
+  });
   it('rejects malformed schedule inputs before invoking a handler', async () => {
     const { ipcMain, invoke } = fakeIpcMain();
     const save = vi.fn();
-    registerIpc({ ipcMain, handlers: handlersWith({ [CHANNELS.lectures.saveManual]: save }) });
-    await expect(invoke(CHANNELS.lectures.saveManual, { candidateId: 'x', title: 'X', schedule: { type: 'weekly', days: [], joinAt: '12:00', leaveAt: '13:00' } })).rejects.toThrow();
+    registerIpc({
+      ipcMain,
+      handlers: handlersWith({ [CHANNELS.lectures.saveManual]: save }),
+    });
+    await expect(
+      invoke(CHANNELS.lectures.saveManual, {
+        candidateId: 'x',
+        title: 'X',
+        schedule: {
+          type: 'weekly',
+          days: [],
+          joinAt: '12:00',
+          leaveAt: '13:00',
+        },
+      }),
+    ).rejects.toThrow();
     expect(save).not.toHaveBeenCalled();
   });
 

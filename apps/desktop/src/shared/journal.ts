@@ -16,3 +16,11 @@ export interface JournalPage {
   items: JournalItem[];
   nextCursor?: string;
 }
+
+export interface NewJournalEvent {
+  id: number;
+  code: JournalCode;
+  title: string;
+  status?: RunStatus;
+  reason?: CompletionReason | 'retries_exhausted';
+}

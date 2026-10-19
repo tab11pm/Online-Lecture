@@ -87,6 +87,7 @@ function fakeLectures() {
     cancelReschedule: vi.fn(async () => undefined),
     deleteLecture: vi.fn(async () => undefined),
     recordSystemEvent: vi.fn(async () => undefined),
+    listJournalPage: vi.fn(async () => ({ items: [] })),
     setBrowser: vi.fn(),
     resumed: vi.fn(),
     shutdown: vi.fn(async () => undefined),
@@ -102,6 +103,54 @@ function fakeLectures() {
 }
 
 describe('CoreHost', () => {
+  it('returns a journal page without requiring a live session', async () => {
+    const lectures = fakeLectures();
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    await flush();
+    send({ type: 'journal.list', requestId: 'j1', filter: 'all' });
+    await flush();
+
+    expect(lectures.control.listJournalPage).toHaveBeenCalledWith(
+      'all',
+      undefined,
+    );
+    expect(posted).toContainEqual({
+      type: 'journal.result',
+      requestId: 'j1',
+      ok: true,
+      page: { items: [] },
+    });
+  });
+
+  it('rejects a malformed journal request inside the worker', async () => {
+    const lectures = fakeLectures();
+    const { transport, posted, send } = fakeTransport();
+    new CoreHost(transport, {
+      paths,
+      machine: machine(),
+      lectures: lectures.factory,
+    }).start();
+    send({
+      type: 'journal.list',
+      requestId: 'j2',
+      filter: 'all',
+      cursor: 'x'.repeat(513),
+    });
+    await flush();
+
+    expect(lectures.control.listJournalPage).not.toHaveBeenCalled();
+    expect(posted).toContainEqual({
+      type: 'journal.result',
+      requestId: 'j2',
+      ok: false,
+      message: 'Не удалось открыть журнал.',
+    });
+  });
   it('records a technical host failure by code without the exception text', async () => {
     const lectures = fakeLectures();
     const { transport, send } = fakeTransport();

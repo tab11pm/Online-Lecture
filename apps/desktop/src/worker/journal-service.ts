@@ -1,18 +1,14 @@
-import type { CompletionReason, Run, RunStatus } from '@core/core/types.js';
+import type { Run } from '@core/core/types.js';
 import { redactSensitiveText } from '@core/core/redaction.js';
 import {
   DesktopEventRepository,
   type JournalCode,
 } from '@core/persistence/desktop-event-repository.js';
-import type { JournalFilter, JournalPage } from '../shared/journal.js';
-
-export interface NewJournalEvent {
-  id: number;
-  code: JournalCode;
-  title: string;
-  status?: RunStatus;
-  reason?: CompletionReason | 'retries_exhausted';
-}
+import type {
+  JournalFilter,
+  JournalPage,
+  NewJournalEvent,
+} from '../shared/journal.js';
 
 /** Bridges durable journal rows to safe desktop notifications. */
 export class JournalService {

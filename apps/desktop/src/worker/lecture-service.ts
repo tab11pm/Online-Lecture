@@ -32,8 +32,12 @@ import type {
   LecturesView,
 } from '../shared/lectures.js';
 import type { CoreLog } from './core-log.js';
-import type { JournalFilter, JournalPage } from '../shared/journal.js';
-import { JournalService, type NewJournalEvent } from './journal-service.js';
+import type {
+  JournalFilter,
+  JournalPage,
+  NewJournalEvent,
+} from '../shared/journal.js';
+import { JournalService } from './journal-service.js';
 import { ImportScheduler } from './import-scheduler.js';
 import { ManualTargetStore, parseManualQuery } from './manual-targets.js';
 import type { ManualTargetLookup } from '../shared/lectures.js';

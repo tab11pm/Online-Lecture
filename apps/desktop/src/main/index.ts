@@ -4,6 +4,7 @@ import {
   app,
   BrowserWindow,
   ipcMain,
+  Notification,
   powerMonitor,
   utilityProcess,
 } from 'electron';
@@ -13,6 +14,7 @@ import type { LoginOutcome, OnboardingState } from '../shared/onboarding.js';
 import type { BrowserChoice } from '../shared/browser-choice.js';
 import { setAutostart as applyAutostart } from './autostart.js';
 import { CoreProcess } from './core-process.js';
+import { DesktopNotifier } from './desktop-notifier.js';
 import { BrowserController } from './browser-controller.js';
 import { ChromiumInstaller } from './chromium-installer.js';
 import { registerIpc } from './ipc.js';
@@ -63,6 +65,7 @@ try {
 let mainWindow: BrowserWindow | undefined;
 let tray: ReturnType<typeof createTray> | undefined;
 let core: CoreProcess | undefined;
+let journalOpenPending = false;
 const quit = new QuitController();
 
 async function getAppInfo(): Promise<AppInfo> {
@@ -89,6 +92,15 @@ function showMainWindow(): void {
   mainWindow.show();
   mainWindow.focus();
 }
+
+const notifier = new DesktopNotifier(
+  (options) => new Notification(options),
+  () => {
+    journalOpenPending = true;
+    showMainWindow();
+    broadcast(CHANNELS.journal.open, undefined);
+  },
+);
 
 void app.whenReady().then(async () => {
   const paths = resolveAppPaths();
@@ -127,6 +139,7 @@ void app.whenReady().then(async () => {
         broadcast(CHANNELS.lectures.changed, view);
         tray?.update(trayStateFromView(view));
       },
+      onJournalEvent: (event) => notifier.show(event),
     },
   );
   const appCore = core;
@@ -222,12 +235,32 @@ void app.whenReady().then(async () => {
         appCore.setLectureSkipped(jobId, occurrenceId, skipped === true);
         return Promise.resolve();
       },
-      [CHANNELS.lectures.resolveManualTarget]: (query: string) => appCore.resolveManualTarget(query),
-      [CHANNELS.lectures.saveManual]: (input: Parameters<CoreProcess['saveManual']>[0]) => appCore.saveManual(input),
-      [CHANNELS.lectures.editImportedTime]: (input: Parameters<CoreProcess['editImportedTime']>[0]) => appCore.editImportedTime(input),
-      [CHANNELS.lectures.reschedule]: (input: Parameters<CoreProcess['reschedule']>[0]) => appCore.reschedule(input),
-      [CHANNELS.lectures.cancelReschedule]: (jobId: string) => appCore.cancelReschedule(jobId),
-      [CHANNELS.lectures.deleteLecture]: (jobId: string, occurrenceId?: string) => appCore.deleteLecture(jobId, occurrenceId),
+      [CHANNELS.lectures.resolveManualTarget]: (query: string) =>
+        appCore.resolveManualTarget(query),
+      [CHANNELS.lectures.saveManual]: (
+        input: Parameters<CoreProcess['saveManual']>[0],
+      ) => appCore.saveManual(input),
+      [CHANNELS.lectures.editImportedTime]: (
+        input: Parameters<CoreProcess['editImportedTime']>[0],
+      ) => appCore.editImportedTime(input),
+      [CHANNELS.lectures.reschedule]: (
+        input: Parameters<CoreProcess['reschedule']>[0],
+      ) => appCore.reschedule(input),
+      [CHANNELS.lectures.cancelReschedule]: (jobId: string) =>
+        appCore.cancelReschedule(jobId),
+      [CHANNELS.lectures.deleteLecture]: (
+        jobId: string,
+        occurrenceId?: string,
+      ) => appCore.deleteLecture(jobId, occurrenceId),
+      [CHANNELS.journal.list]: (
+        filter: Parameters<CoreProcess['listJournalPage']>[0],
+        cursor?: string,
+      ) => appCore.listJournalPage(filter, cursor),
+      [CHANNELS.journal.consumeOpenRequest]: () => {
+        const pending = journalOpenPending;
+        journalOpenPending = false;
+        return pending;
+      },
       [CHANNELS.core.getStatus]: () => appCore.getStatus(),
       [CHANNELS.core.start]: () => appCore.start(),
       [CHANNELS.core.stop]: () => appCore.stop(),
