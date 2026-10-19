@@ -23,6 +23,11 @@ const fake = vi.hoisted(() => {
     Promise.resolve({ agenda: [], import: { status: 'idle' } }),
   );
   const api = {
+    journal: {
+      list: vi.fn(() => Promise.resolve({ items: [] })),
+      consumeOpenRequest: vi.fn(() => Promise.resolve(false)),
+      onOpen: vi.fn(() => () => undefined),
+    },
     onboarding: {
       getState: vi.fn(() =>
         Promise.resolve({ phase: 'session_ready' as const }),
@@ -54,7 +59,9 @@ const fake = vi.hoisted(() => {
       importNow: vi.fn(() => Promise.resolve()),
       stopCurrent: vi.fn(() => Promise.resolve()),
       setSkipped: vi.fn(() => Promise.resolve()),
-      resolveManualTarget: vi.fn(async () => ({ status: 'not_found' as const })),
+      resolveManualTarget: vi.fn(async () => ({
+        status: 'not_found' as const,
+      })),
       saveManual: vi.fn(async () => undefined),
       editImportedTime: vi.fn(async () => undefined),
       reschedule: vi.fn(async () => 'manual:2'),
@@ -120,6 +127,7 @@ function show(view: Partial<LecturesView>): void {
 }
 
 beforeEach(() => {
+  fake.getView.mockClear();
   vi.mocked(fake.api.lectures.importNow).mockClear();
   vi.mocked(fake.api.lectures.stopCurrent).mockClear();
   vi.mocked(fake.api.lectures.setSkipped).mockClear();
@@ -137,14 +145,42 @@ afterEach(() => {
 });
 
 describe('main screen', () => {
+  it('opens the journal from the main button', async () => {
+    render(<App />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Журнал' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Журнал' }),
+    ).toBeVisible();
+  });
+
+  it('keeps the current main view and editor state when returning from the journal', async () => {
+    render(<App />);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Добавить пару' }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Журнал' }));
+    expect(
+      await screen.findByRole('heading', { name: 'Журнал' }),
+    ).toBeVisible();
+    fireEvent.click(screen.getByRole('button', { name: 'Назад' }));
+    expect(screen.getByRole('region', { name: 'Добавить пару' })).toBeVisible();
+    expect(fake.getView).toHaveBeenCalledTimes(1);
+  });
   it('opens schedule editing and routes deletion to the selected occurrence', async () => {
     show({ agenda: [item()] });
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Изменить / перенести' }));
-    expect(screen.getByRole('region', { name: /Изменить Математический анализ/ })).toBeVisible();
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Изменить / перенести' }),
+    );
+    expect(
+      screen.getByRole('region', { name: /Изменить Математический анализ/ }),
+    ).toBeVisible();
     fireEvent.click(screen.getByRole('button', { name: 'Отмена' }));
     fireEvent.click(screen.getByRole('button', { name: 'Скрыть пару' }));
-    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith('job-1', 'occ-1');
+    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith(
+      'job-1',
+      'occ-1',
+    );
   });
 
   it('passes the selected occurrence when hiding the second pair on one day', async () => {
@@ -155,14 +191,21 @@ describe('main screen', () => {
       ],
     });
     render(<App />);
-    const buttons = await screen.findAllByRole('button', { name: 'Скрыть пару' });
+    const buttons = await screen.findAllByRole('button', {
+      name: 'Скрыть пару',
+    });
     fireEvent.click(buttons[1]!);
-    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith('job-1', 'occ-second');
+    expect(fake.api.lectures.deleteLecture).toHaveBeenCalledWith(
+      'job-1',
+      'occ-second',
+    );
   });
 
   it('opens the manual lecture wizard from the main screen', async () => {
     render(<App />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Добавить пару' }));
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Добавить пару' }),
+    );
     expect(screen.getByRole('region', { name: 'Добавить пару' })).toBeVisible();
   });
 

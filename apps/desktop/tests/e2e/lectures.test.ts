@@ -68,6 +68,66 @@ e2e(
       );
       await lastRun.waitFor({ state: 'visible', timeout: 60_000 });
       expect(await lastRun.isVisible()).toBe(true);
+      await page.getByRole('button', { name: 'Журнал' }).click();
+      await page.getByRole('heading', { name: 'Журнал' }).waitFor();
+      await page
+        .getByRole('listitem')
+        .filter({ hasText: 'Демонстрационная лекция' })
+        .getByText('Завершена')
+        .waitFor();
+      await page.getByRole('button', { name: 'Ошибки' }).click();
+      await page
+        .getByRole('status')
+        .filter({ hasText: 'Записей пока нет' })
+        .waitFor();
+    } finally {
+      await app?.close();
+      rmSync(dataDir, { recursive: true, force: true });
+    }
+  },
+  240_000,
+);
+
+e2e(
+  'shows a failed fake lecture in the journal',
+  async ({ skip }) => {
+    if (!existsSync(mainEntry)) {
+      skip('Build the desktop application before the E2E run.');
+      return;
+    }
+    const dataDir = mkdtempSync(join(tmpdir(), 'online-lecture-failed-e2e-'));
+    let app: ElectronApplication | undefined;
+    try {
+      try {
+        app = await electron.launch({
+          args: [mainEntry, `--user-data-dir=${dataDir}`],
+          env: {
+            ...process.env,
+            ONLINE_LECTURE_FAKE_SESSION: '1',
+            ONLINE_LECTURE_FAKE_SESSION_EXPIRED: '1',
+            ONLINE_LECTURE_FAKE_RUN_FAILURE: '1',
+            LOCALAPPDATA: dataDir,
+          },
+        });
+      } catch (error) {
+        skip(`Electron could not launch here: ${describeError(error)}`);
+        return;
+      }
+      const page = await app.firstWindow();
+      await page.getByRole('button', { name: 'Начать' }).click();
+      await page.getByLabel('Логин').fill('student');
+      await page.getByLabel('Пароль').fill('fake-password');
+      await page.getByRole('button', { name: 'Войти' }).click();
+      await page
+        .getByText(/Последний запуск: Демонстрационная лекция — ошибка/)
+        .waitFor({ state: 'visible', timeout: 90_000 });
+      await page.getByRole('button', { name: 'Журнал' }).click();
+      await page.getByRole('button', { name: 'Ошибки' }).click();
+      await page
+        .getByRole('listitem')
+        .filter({ hasText: 'Демонстрационная лекция' })
+        .getByText('Ошибка')
+        .waitFor();
     } finally {
       await app?.close();
       rmSync(dataDir, { recursive: true, force: true });

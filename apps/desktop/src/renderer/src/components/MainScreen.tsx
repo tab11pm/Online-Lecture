@@ -11,6 +11,7 @@ import { SettingsPanel } from './SettingsPanel';
 
 export interface MainScreenProps {
   onCheckSession(): void;
+  onOpenJournal(): void;
 }
 
 function message(error: unknown): string {
@@ -19,7 +20,7 @@ function message(error: unknown): string {
     : 'Не удалось выполнить действие.';
 }
 
-export function MainScreen({ onCheckSession }: MainScreenProps) {
+export function MainScreen({ onCheckSession, onOpenJournal }: MainScreenProps) {
   const [view, setView] = useState<LecturesView>();
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState<string>();
@@ -61,6 +62,9 @@ export function MainScreen({ onCheckSession }: MainScreenProps) {
   return (
     <main>
       <h1>Online Lecture</h1>
+      <button type="button" onClick={onOpenJournal}>
+        Журнал
+      </button>
       {notice ? <p role="alert">{notice}</p> : null}
       {error ? <p role="alert">{error}</p> : null}
       {view ? (
